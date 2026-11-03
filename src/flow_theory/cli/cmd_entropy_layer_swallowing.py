@@ -7,11 +7,7 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import (
-    EntropyLayerSwallowingConfig,
-    parse_entropy_layer_swallowing_config,
-    read_config,
-)
+from flow_theory.config import EntropyLayerSwallowingConfig
 from flow_theory.runners import run_entropy_layer_swallowing
 
 from .focused_config import write_focused_config
@@ -63,7 +59,7 @@ def cmd_entropy_layer_swallowing(
     ] = None,
     nose_radius: Annotated[
         float | None,
-        typer.Option("--nose-radius", help="Nose radius [m]."),
+        typer.Option("--nose-radius", help="Nose radius \\[m]."),
     ] = None,
     tw_t0: Annotated[
         float | None,
@@ -94,26 +90,21 @@ def cmd_entropy_layer_swallowing(
                     "mach, re1, nose_radius, and tw_t0 are required unless --config is provided"
                 )
 
-            runner_config = EntropyLayerSwallowingConfig(
-                mach=float(mach),
-                re1=float(re1),
-                nose_radius=float(nose_radius),
-                tw_t0=float(tw_t0),
-                gamma=float(gamma),
-                output=output,
+            runner_config = EntropyLayerSwallowingConfig.from_dict(
+                {
+                    "mach": mach,
+                    "re1": re1,
+                    "nose_radius": nose_radius,
+                    "tw_t0": tw_t0,
+                    "gamma": gamma,
+                    "output": output,
+                }
             )
         else:
             config_path = (
                 Path("entropy_layer_swallowing.toml") if config is None else config
             )
-            cfg = read_config(config_path)
-            if not hasattr(cfg, "entropy_layer_swallowing"):
-                raise ValueError(
-                    "Config file does not contain an [entropy_layer_swallowing] section"
-                )
-            runner_config = parse_entropy_layer_swallowing_config(
-                cfg.entropy_layer_swallowing
-            )
+            runner_config = EntropyLayerSwallowingConfig.from_file(config_path)
 
         run_entropy_layer_swallowing(runner_config)
     except typer.Exit:

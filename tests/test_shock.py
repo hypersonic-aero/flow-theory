@@ -9,7 +9,9 @@ import math
 
 import numpy as np
 import pytest
+from gasdyn import solve_oblique, solve_taylor_maccoll
 
+from flow_theory.geometry import parse_geometry
 from flow_theory.shock import compute_shock_shape, compute_shock_standoff
 
 
@@ -147,71 +149,68 @@ def test_standoff_rejects_unsupported_geometry() -> None:
 # --------------------------------------------------
 # shock-shape tests
 # --------------------------------------------------
-@pytest.mark.parametrize("geometry", ["sphere", "cylinder"])
-def test_shock_shape_vertex_matches_composed_standoff(geometry: str) -> None:
-    """The first shock point should be the upstream axis standoff location."""
+# one body per geometry type, all ending at the same x_e
+SHAPE_X_E = 0.3
+SHAPE_GEOMETRIES = {
+    "plate": {"type": "plate", "nose_radius": 0.01},
+    "wedge": {"type": "wedge", "nose_radius": 0.01, "half_angle": 10.0},
+    "cone": {"type": "cone", "nose_radius": 0.01, "half_angle": 7.0},
+    "tangent-ogive": {
+        "type": "tangent-ogive",
+        "nose_radius": 0.002,
+        "length": 0.25,
+        "base_radius": 0.03,
+    },
+}
 
-    # compute a sampled Billig shock locus
-    result = compute_shock_shape(
-        mach=19.25,
-        gamma=1.4,
-        nose_radius=1.0,
-        geometry=geometry,
-        n_points=200,
-        x_e=1.8,
+
+def billig_hyperbola_x(y, result, shock_angle: float):
+    """Billig's closed-form hyperbola x(y) with a constant asymptote angle [deg]."""
+
+    # Billig (1967) in nose-tip coordinates
+    tan_shock = math.tan(math.radians(shock_angle))
+    radius = result.shock_radius
+    x = -result.standoff.delta + radius / tan_shock**2 * (
+        np.sqrt(1.0 + (y * tan_shock / radius) ** 2) - 1.0
     )
 
-    # check the coordinate contract and physical sweep direction
+    return x
+
+
+@pytest.mark.parametrize("geometry_type", list(SHAPE_GEOMETRIES))
+def test_shock_shape_runs_from_the_vertex_to_x_e(geometry_type: str) -> None:
+    """The shock starts at the standoff vertex, ends at x_e, and lies outside the body."""
+
+    # compute
+    geometry = parse_geometry(SHAPE_GEOMETRIES[geometry_type], SHAPE_X_E)
+    result = compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, n_points=200)
+
+    # check the shock: vertex, end, monotonic in x
     assert result.x.shape == (200,)
-    assert result.y.shape == (200,)
-    assert result.body_x.shape == (200,)
-    assert result.body_y.shape == (200,)
-    assert result.x[0] == pytest.approx(-result.standoff.delta)
-    assert result.x[-1] == pytest.approx(1.8)
+    assert (result.x[0], result.y[0]) == (pytest.approx(-result.standoff.delta), 0.0)
+    assert result.x[-1] == pytest.approx(SHAPE_X_E)
     assert np.all(np.diff(result.x) > 0.0)
-    assert np.all(result.y >= 0.0)
-    assert result.geometry == geometry
 
-
-def test_shock_shape_cylinder_differs_from_sphere() -> None:
-    """Cylinder and sphere Billig constants should not collapse to one locus."""
-
-    sphere = compute_shock_shape(
-        mach=8.0,
-        gamma=1.4,
-        nose_radius=0.02,
-        geometry="sphere",
-        n_points=150,
-        x_e=0.03,
+    # check the body: stagnation point to x_e
+    assert (result.body_x[0], result.body_y[0]) == (
+        pytest.approx(0.0),
+        pytest.approx(0.0),
     )
-    cylinder = compute_shock_shape(
-        mach=8.0,
-        gamma=1.4,
-        nose_radius=0.02,
-        geometry="cylinder",
-        n_points=150,
-        x_e=0.03,
-    )
+    assert result.body_x[-1] == pytest.approx(SHAPE_X_E)
 
-    # check both shock loci share x_e but have different vertex locations
-    assert sphere.x[-1] == pytest.approx(cylinder.x[-1])
-    assert sphere.x[0] != pytest.approx(cylinder.x[0])
-
-    # check geometry-specific Billig constants produce different y-loci
-    assert not np.allclose(sphere.y, cylinder.y)
+    # check: the shock lies above the body everywhere
+    shock_y_at_body = np.interp(result.body_x, result.x, result.y)
+    assert np.all(shock_y_at_body[1:] > result.body_y[1:])
 
 
 def test_shock_shape_matches_billig_worked_point() -> None:
     """The sampled locus should reproduce Billig's reported sphere point."""
 
-    # compute the worked Mach 19.25 case in the nose-tip coordinate frame
-    result = compute_shock_shape(
-        mach=19.25,
-        gamma=1.4,
-        nose_radius=1.0,
-        n_points=2000,
-        x_e=1.8,
+    # compute the worked Mach 19.25 case (a sphere-cylinder) in the nose-tip frame
+    geometry = parse_geometry(
+        {"type": "cone", "nose_radius": 1.0, "half_angle": 0.0}, 1.8
     )
+    result = compute_shock_shape(19.25, 1.4, geometry, 1.8, n_points=2000)
 
     # Billig's x=0 is the sphere center, which is x=R in this package
     y_at_sphere_center = np.interp(1.0, result.x, result.y)
@@ -220,102 +219,194 @@ def test_shock_shape_matches_billig_worked_point() -> None:
     assert y_at_sphere_center == pytest.approx(1.64, rel=5.0e-3)
 
 
-def test_shock_shape_rejects_unvalidated_blunt_cone_geometry() -> None:
-    """The sphere correlation should not silently represent a cone afterbody."""
+@pytest.mark.parametrize(
+    ("geometry_type", "shock_angle"),
+    [
+        ("plate", math.degrees(math.asin(1.0 / 6.0))),
+        ("wedge", solve_oblique(mach=6.0, deflection_angle=10.0).shock_angle),
+        ("cone", solve_taylor_maccoll(mach=6.0, cone_angle=7.0).shock_angle),
+    ],
+)
+def test_straight_bodies_give_billigs_hyperbola(
+    geometry_type: str, shock_angle: float
+) -> None:
+    """With a constant surface angle, the shock is Billig's hyperbola with the sharp-body angle."""
+
+    # compute
+    geometry = parse_geometry(SHAPE_GEOMETRIES[geometry_type], SHAPE_X_E)
+    result = compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, n_points=400)
+
+    # check against the closed form (to the shock-angle table's interpolation error)
+    expected_x = billig_hyperbola_x(result.y, result, shock_angle)
+    assert np.max(np.abs(result.x - expected_x)) < 1.0e-4 * SHAPE_X_E
+
+
+def test_planar_and_axisymmetric_bodies_use_their_own_correlations() -> None:
+    """A wedge (cylinder nose) and a cone (sphere nose) of the same angle differ."""
+
+    # compute both
+    wedge_table = {"type": "wedge", "nose_radius": 0.01, "half_angle": 7.0}
+    wedge = compute_shock_shape(6.0, 1.4, parse_geometry(wedge_table, 0.1), 0.1)
+    cone = compute_shock_shape(
+        6.0, 1.4, parse_geometry(SHAPE_GEOMETRIES["cone"], 0.1), 0.1
+    )
+
+    # check: the cylinder nose stands the shock off further, and the wedge shock is steeper
+    assert wedge.standoff.delta > cone.standoff.delta
+    assert wedge.y[-1] > cone.y[-1]
+
+
+def test_ogive_shock_follows_the_surface_angle() -> None:
+    """The ogive shock bends from the nose-end hyperbola toward the Mach-angle hyperbola."""
+
+    # compute an ogive ending on its cylinder
+    geometry = parse_geometry(SHAPE_GEOMETRIES["tangent-ogive"], SHAPE_X_E)
+    result = compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, n_points=400)
+
+    # the two bounding hyperbolas: the cone angle where the nose ends, and the Mach angle
+    ogive = geometry.build()
+    nose_end_angle = math.degrees(ogive.tangency_angle)
+    steepest = solve_taylor_maccoll(mach=6.0, cone_angle=nose_end_angle).shock_angle
+    flattest = math.degrees(math.asin(1.0 / 6.0))
+    x_steepest = billig_hyperbola_x(result.y, result, steepest)
+    x_flattest = billig_hyperbola_x(result.y, result, flattest)
+
+    # check: on the steepest hyperbola ahead of the nose's end, between the two after it
+    x_nose_end, _ = ogive.junction_point
+    ahead = result.x < x_nose_end
+    behind = result.x > 2.0 * x_nose_end
+    np.testing.assert_allclose(
+        result.x[ahead], x_steepest[ahead], atol=1.0e-4 * SHAPE_X_E
+    )
+    assert np.all(result.x[behind] > x_steepest[behind])
+    assert np.all(result.x[behind] < x_flattest[behind])
+
+
+@pytest.mark.parametrize("mach", [30.0, 50.0])
+def test_shock_shape_runs_at_very_high_mach(mach: float) -> None:
+    """The weakest table shocks, on cones too thin to solve, don't stop the calculation."""
+
+    # compute an ogive (surface angles down to 0) at very high Mach
+    geometry = parse_geometry(SHAPE_GEOMETRIES["tangent-ogive"], SHAPE_X_E)
+    result = compute_shock_shape(mach, 1.4, geometry, SHAPE_X_E)
 
     # check
-    with pytest.raises(ValueError, match="geometry must be one of"):
-        compute_shock_shape(
-            mach=6.0,
-            gamma=1.4,
-            nose_radius=0.01,
-            geometry="blunt_cone",
-            x_e=0.1,
-        )
+    assert result.x[-1] == pytest.approx(SHAPE_X_E)
+    assert np.all(np.isfinite(result.y))
 
 
-def test_shock_shape_cone_geometry_uses_requested_x_e() -> None:
-    """Cone geometry should sample from the shock vertex to x_e."""
+@pytest.mark.parametrize("nose_radius", [1.0e-3, 1.0e-6])
+def test_small_noses_are_resolved(nose_radius: float) -> None:
+    """A nose a million times smaller than the body still gets smooth shock and body points."""
 
+    # compute a 1 m cone
+    table = {"type": "cone", "nose_radius": nose_radius, "half_angle": 7.0}
     result = compute_shock_shape(
-        mach=6.0,
-        gamma=1.4,
-        nose_radius=0.01,
-        geometry="cone",
-        half_angle=15.0,
-        x_e=0.10,
-        n_points=200,
+        6.0, 1.4, parse_geometry(table, 1.0), 1.0, n_points=201
     )
 
-    # check the streamwise coordinate contract
-    assert result.x[0] == pytest.approx(-result.standoff.delta)
-    assert result.x[-1] == pytest.approx(0.10)
-    assert np.all(np.diff(result.x) > 0.0)
+    # turning angle between neighboring segments [deg]
+    shock_heading = np.arctan2(np.diff(result.y), np.diff(result.x))
+    body_heading = np.arctan2(np.diff(result.body_y), np.diff(result.body_x))
+    shock_turning = np.degrees(np.abs(np.diff(shock_heading)))
+    body_turning = np.degrees(np.abs(np.diff(body_heading)))
 
-    # check cone metadata is carried on the result
-    assert result.half_angle == pytest.approx(15.0)
-    assert result.asymptote_shock_angle is not None
-    assert result.virtual_cone_origin is not None
-    assert result.body_x[0] == pytest.approx(0.0)
-    assert result.body_x[-1] == pytest.approx(0.10)
+    # check: no kinks at the vertex or the stagnation point
+    assert shock_turning.max() < 2.0
+    assert body_turning.max() < 2.0
 
 
-def test_shock_shape_cone_requires_x_e_and_half_angle() -> None:
-    """Cone geometry should fail fast when required inputs are missing."""
+def test_shock_shape_rejects_a_detached_sharp_body_shock() -> None:
+    """A wedge steeper than the largest attached angle fails with a clear message."""
 
-    with pytest.raises(ValueError, match="half_angle is required"):
-        compute_shock_shape(
-            mach=6.0,
-            gamma=1.4,
-            nose_radius=0.01,
-            geometry="cone",
-            x_e=0.10,
-        )
-
-    with pytest.raises(ValueError, match="x_e is required"):
-        compute_shock_shape(
-            mach=6.0,
-            gamma=1.4,
-            nose_radius=0.01,
-            geometry="cone",
-            half_angle=15.0,
-        )
+    # check
+    geometry = parse_geometry(
+        {"type": "wedge", "nose_radius": 0.01, "half_angle": 50.0}, 0.1
+    )
+    with pytest.raises(ValueError, match="attached shock"):
+        compute_shock_shape(6.0, 1.4, geometry, 0.1)
 
 
-@pytest.mark.parametrize("geometry", ["cone", "ogive", "wedge"])
-def test_blended_geometries_build_surface_and_shock(geometry: str) -> None:
-    """Each blended geometry should build both body and shock zones."""
+def test_shock_shape_rejects_bad_selectors() -> None:
+    """Unknown methods and too few points fail."""
 
-    result = compute_shock_shape(
-        mach=6.0,
-        gamma=1.4,
-        nose_radius=0.01,
-        geometry=geometry,
-        half_angle=7.0,
-        x_e=0.08,
-        n_points=120,
+    # check
+    geometry = parse_geometry(SHAPE_GEOMETRIES["cone"], 0.1)
+    with pytest.raises(ValueError, match="method must be one of"):
+        compute_shock_shape(6.0, 1.4, geometry, 0.1, method="hyperbola")
+    with pytest.raises(ValueError, match="n_points"):
+        compute_shock_shape(6.0, 1.4, geometry, 0.1, n_points=1)
+
+
+# --------------------------------------------------
+# billig_blended
+# --------------------------------------------------
+def test_billig_blended_fades_from_billig_to_the_virtual_origin_shock() -> None:
+    """The blend is Billig at the nose and the virtual-origin sharp-cone shock far downstream."""
+
+    # compute both methods on a long cone (x_e = 2000 nose radii)
+    nose_radius, half_angle, x_e = 0.001, 7.0, 2.0
+    geometry = parse_geometry(
+        {"type": "cone", "nose_radius": nose_radius, "half_angle": half_angle}, x_e
+    )
+    billig = compute_shock_shape(6.0, 1.4, geometry, x_e, n_points=4000)
+    blended = compute_shock_shape(
+        6.0,
+        1.4,
+        geometry,
+        x_e,
+        n_points=4000,
+        method="billig_blended",
+        blend_nose_radii=30.0,
     )
 
-    assert result.x.shape == (120,)
-    assert result.body_x.shape == (120,)
-    assert result.asymptote_shock_angle is not None
-    assert result.virtual_cone_origin is not None
+    # the virtual-origin sharp-cone shock
+    shock_angle = solve_taylor_maccoll(mach=6.0, cone_angle=half_angle).shock_angle
+    x_virtual = nose_radius * (1.0 - 1.0 / math.sin(math.radians(half_angle)))
 
+    # check the blend formula at stations from the nose to the end
+    for x in (0.0, 0.01, 0.1, 1.0, 2.0):
+        y_billig = np.interp(x, billig.x, billig.y)
+        y_virtual = (x - x_virtual) * math.tan(math.radians(shock_angle))
+        weight = 1.0 / (1.0 + (x / nose_radius) / 30.0)
+        expected = weight * y_billig + (1.0 - weight) * y_virtual
+        assert np.interp(x, blended.x, blended.y) == pytest.approx(
+            expected, rel=1.0e-4, abs=2.0e-5
+        )
 
-@pytest.mark.parametrize("geometry", ["sphere", "cylinder"])
-def test_blunt_surface_zone_terminates_at_cap_end(geometry: str) -> None:
-    """Sphere/cylinder body surface should stop at x=2R without a zero tail."""
-
-    radius = 0.01
-    result = compute_shock_shape(
-        mach=6.0,
-        gamma=1.4,
-        nose_radius=radius,
-        geometry=geometry,
-        x_e=0.10,
-        n_points=101,
+    # check: same vertex, and the shock stays ahead of the body
+    assert blended.x[0] == pytest.approx(billig.x[0])
+    assert np.all(
+        np.interp(blended.body_x, blended.x, blended.y)[1:] > blended.body_y[1:]
     )
 
-    assert result.body_x[0] == pytest.approx(0.0)
-    assert result.body_x[-1] == pytest.approx(2.0 * radius)
-    assert np.all(result.body_y >= 0.0)
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        {"type": "plate", "nose_radius": 0.01},
+        {"type": "cone", "nose_radius": 0.01, "half_angle": 0.0},
+        {
+            "type": "tangent-ogive",
+            "nose_radius": 0.002,
+            "length": 0.25,
+            "base_radius": 0.03,
+        },
+    ],
+)
+def test_billig_blended_needs_a_straight_surface(table: dict) -> None:
+    """Bodies without a virtual origin (no straight, inclined surface) are rejected."""
+
+    # check
+    geometry = parse_geometry(table, SHAPE_X_E)
+    with pytest.raises(ValueError, match="virtual origin"):
+        compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, method="billig_blended")
+
+
+def test_blend_length_only_applies_to_billig_blended() -> None:
+    """A blend length with method billig is an error, not silently ignored."""
+
+    # check
+    geometry = parse_geometry(SHAPE_GEOMETRIES["cone"], SHAPE_X_E)
+    with pytest.raises(ValueError, match="only applies"):
+        compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, blend_nose_radii=30.0)

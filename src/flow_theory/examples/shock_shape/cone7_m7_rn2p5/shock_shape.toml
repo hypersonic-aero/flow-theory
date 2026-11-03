@@ -1,0 +1,33 @@
+# 7 deg cone, 2.5 mm nose radius, Mach 7, Re = 2.4e6 /m
+#
+# body: 7 deg half-angle cone, 2.5 mm spherical nose, ending at x = 1 m (unit length)
+# freestream: flow_conditions.json (flow-state: mach = 7, temp = 300 K, re1 = 2.4e6 /m)
+# run: flow-theory shock-shape run
+
+# --------------------------------------------------
+# detached bow-shock locus
+# --------------------------------------------------
+[shock_shape]
+# flow conditions for the shock shape estimation (flow-state JSON with the freestream)
+flow_conditions = "flow_conditions.json"
+# method to estimate the shock shape (billig, billig_blended)
+method = "billig_blended"
+# blend length from Billig's shock into the virtual-origin cone shock [nose radii]
+blend_nose_radii = 35.0
+# points on the shock and on the body
+n_points = 201
+# streamwise end [m], measured from the nose tip
+x_e = 1.0
+# output file: Tecplot ASCII with a shock zone and a body zone (.csv: the shock as x, y)
+output = "shock_shape.dat"
+
+# --------------------------------------------------
+# body: canonical-geometries' [geometry] table (x_e sets its length)
+# --------------------------------------------------
+[shock_shape.geometry]
+# geometry type (plate, wedge, cone, tangent-ogive)
+type = "cone"
+# nose radius [m]
+nose_radius = 2.5e-3
+# cone half-angle [deg]
+half_angle = 7.0

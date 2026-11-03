@@ -7,22 +7,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flow_theory.config import ConfigNode, TransitionConfig, parse_transition_config
+from flow_theory.config import TransitionConfig
 from flow_theory.runners import run_transition
 
 
 # --------------------------------------------------
 # tests
 # --------------------------------------------------
-def test_parse_transition_config_defaults_run_to_true() -> None:
-    """Focused transition configs should not require a workflow toggle."""
+def test_transition_config_defaults_the_method() -> None:
+    """A [transition] section without a method uses van_driest_blumer."""
 
-    config = parse_transition_config(
-        ConfigNode({"mach": 5.0, "re1": 3.0e6, "tw_te": 0.5})
-    )
+    config = TransitionConfig.from_dict({"mach": 5.0, "re1": 3.0e6, "tw_te": 0.5})
 
     assert isinstance(config, TransitionConfig)
-    assert config.run is True
     assert config.method == "van_driest_blumer"
 
 

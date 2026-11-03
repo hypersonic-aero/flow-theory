@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from flow_theory.cli.app import app
+from flow_theory.io.examples import list_examples
 
 runner = CliRunner()
 
@@ -156,3 +158,84 @@ def test_transition_has_scoped_workflow() -> None:
     assert help_result.exit_code == 0
     assert "init" in help_result.output
     assert "run" in help_result.output
+
+
+# --------------------------------------------------
+# examples
+# --------------------------------------------------
+
+# CLI command name of each calculator (config section name -> command)
+CALCULATOR_COMMANDS = {
+    "boundary_layer_thickness": "bl",
+    "cf_ch": "cf-ch",
+    "entropy_layer_estimate": "entropy-layer-estimate",
+    "entropy_layer_swallowing": "entropy-layer-swallowing",
+    "shock_shape": "shock-shape",
+    "shock_standoff": "shock-standoff",
+    "transition": "transition",
+}
+
+# every bundled example as (calculator, name)
+ALL_EXAMPLES = [
+    (calculator, name)
+    for calculator in CALCULATOR_COMMANDS
+    for name in list_examples(calculator)
+]
+
+
+def test_examples_exist() -> None:
+    """At least one calculator ships examples (guards against a packaging slip)."""
+    assert ALL_EXAMPLES
+
+
+@pytest.mark.parametrize(("calculator", "name"), ALL_EXAMPLES)
+def test_every_example_copies_and_runs(
+    calculator: str, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each example lands in the current folder and runs there with run's default config."""
+    command = CALCULATOR_COMMANDS[calculator]
+
+    # list: the example appears with its description
+    list_result = runner.invoke(app, [command, "examples"])
+    assert list_result.exit_code == 0
+    assert name in list_result.output
+    assert list_examples(calculator)[name] in list_result.output
+
+    # copy into the current folder, then run there
+    copy_result = runner.invoke(app, [command, "examples", name])
+    assert copy_result.exit_code == 0
+    run_result = runner.invoke(app, [command, "run"])
+
+    # check: the run succeeded and wrote the output its config names
+    assert run_result.exit_code == 0, run_result.output
+    config = tomllib.loads(Path(f"{calculator}.toml").read_text(encoding="utf-8"))
+    output = config[calculator].get("output")
+    if output is not None:
+        assert Path(output).exists()
+
+
+def test_examples_refuse_to_overwrite_files_unless_forced() -> None:
+    """A second copy fails without --force (the files exist) and overwrites with it."""
+    calculator, name = ALL_EXAMPLES[0]
+    command = CALCULATOR_COMMANDS[calculator]
+    runner.invoke(app, [command, "examples", name])
+
+    refused = runner.invoke(app, [command, "examples", name])
+    forced = runner.invoke(app, [command, "examples", name, "--force"])
+
+    assert refused.exit_code == 1
+    assert "would overwrite" in refused.output
+    assert forced.exit_code == 0
+
+
+def test_examples_reject_an_unknown_name() -> None:
+    """An unknown name fails, lists the available examples, and writes nothing."""
+    calculator, name = ALL_EXAMPLES[0]
+    command = CALCULATOR_COMMANDS[calculator]
+
+    result = runner.invoke(app, [command, "examples", "nope"])
+
+    assert result.exit_code == 1
+    assert "unknown example" in result.output
+    assert name in result.output
+    assert list(Path(".").iterdir()) == []

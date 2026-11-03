@@ -38,7 +38,6 @@ def test_run_cf_ch_uses_reconstructed_flow_state(tmp_path, monkeypatch) -> None:
     write_json(state, flow_state_path)
 
     config = CfChConfig(
-        run=True,
         flow_conditions=flow_state_path,
         x=1.0,
         mode="turbulent",
@@ -74,9 +73,8 @@ def test_run_cf_ch_uses_reconstructed_flow_state(tmp_path, monkeypatch) -> None:
 def test_cf_ch_config_requires_flow_conditions_path() -> None:
     """The workflow should never discover a flow-state file implicitly."""
 
-    with pytest.raises(TypeError, match="flow_conditions must be a Path"):
+    with pytest.raises(ValueError, match="flow_conditions"):
         CfChConfig(
-            run=True,
             flow_conditions=None,
             x=1.0,
             mode="turbulent",

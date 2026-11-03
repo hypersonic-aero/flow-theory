@@ -14,7 +14,7 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import CfChConfig, parse_cf_ch_config, read_config
+from flow_theory.config import CfChConfig
 from flow_theory.runners import run_cf_ch
 
 from .focused_config import write_focused_config
@@ -56,11 +56,11 @@ def cmd_cf_ch(
     ] = None,
     xs: Annotated[
         float | None,
-        typer.Option("--xs", help="Start x location [m]."),
+        typer.Option("--xs", help="Start x location \\[m]."),
     ] = None,
     xe: Annotated[
         float | None,
-        typer.Option("--xe", help="End x location [m]."),
+        typer.Option("--xe", help="End x location \\[m]."),
     ] = None,
     nx: Annotated[
         int | None,
@@ -116,32 +116,23 @@ def cmd_cf_ch(
                     "xs, xe, nx, and flow_conditions are required unless --config is provided"
                 )
 
-            # sanity checks on x inputs
-            if nx < 2:
-                raise ValueError("nx must be at least 2")
-            if xe <= xs:
-                raise ValueError("xe must be greater than xs")
-            if xs < 0.0:
-                raise ValueError("xs must be non-negative")
-
             # build the shared runner configuration from direct options
             wall_type = "isothermal" if temp_wall is not None else "adiabatic"
-            runner_config = CfChConfig(
-                flow_conditions=flow_conditions,
-                x=[float(xs), float(xe), int(nx)],
-                mode=mode,
-                method=method,
-                wall_type=wall_type,
-                temp_wall=temp_wall,
-                output=output,
+            runner_config = CfChConfig.from_dict(
+                {
+                    "flow_conditions": flow_conditions,
+                    "x": [xs, xe, nx],
+                    "mode": mode,
+                    "method": method,
+                    "wall_type": wall_type,
+                    "temp_wall": temp_wall,
+                    "output": output,
+                }
             )
         else:
             # load the focused default configuration when no direct inputs are given
             config_path = Path("cf_ch.toml") if config is None else config
-            cfg = read_config(config_path)
-            if not hasattr(cfg, "cf_ch"):
-                raise ValueError("Config file does not contain a [cf_ch] section")
-            runner_config = parse_cf_ch_config(cfg.cf_ch)
+            runner_config = CfChConfig.from_file(config_path)
 
         # run the shared cf/ch implementation
         run_cf_ch(runner_config)

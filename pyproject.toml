@@ -27,7 +27,8 @@ classifiers = [
 keywords = ["aerodynamics", "hypersonics", "skin-friction", "boundary-layer", "cfd"]
 
 dependencies = [
-    "gasdyn>=0.0.2",
+    "canonical-geometries>=0.2.0",
+    "gasdyn>=0.1.0",
     "numpy>=1.24.0",
     "scipy>=1.10.0",
     "typer>=0.9.0",
@@ -53,6 +54,10 @@ Documentation = "https://uahypersonics.github.io/flow-theory"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# bundled example cases: examples/<calculator>/<name>/<files>
+"flow_theory" = ["examples/*/*/*"]
 
 [tool.setuptools_scm]
 # version is read from git tags (e.g. v0.1.0 -> 0.1.0)

@@ -1,17 +1,15 @@
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from flow_theory.config import CfChConfig
-from flow_theory.config.schema import ConfigNode
 from flow_theory.runners import run_cf_ch
 
 
 def test_cf_ch_config_resolves_scalar_x() -> None:
     config = CfChConfig(
-        run=True,
         flow_conditions=Path("flow_conditions.json"),
         x=1.5,
     )
@@ -23,7 +21,6 @@ def test_cf_ch_config_resolves_scalar_x() -> None:
 
 def test_cf_ch_config_resolves_count_based_x() -> None:
     config = CfChConfig(
-        run=True,
         flow_conditions=Path("flow_conditions.json"),
         x=[0.1, 1.0, 5],
     )
@@ -34,7 +31,6 @@ def test_cf_ch_config_resolves_count_based_x() -> None:
 
 def test_cf_ch_config_resolves_step_based_x() -> None:
     config = CfChConfig(
-        run=True,
         flow_conditions=Path("flow_conditions.json"),
         x=[0.1, 1.0, 0.2],
     )
@@ -46,41 +42,30 @@ def test_cf_ch_config_resolves_step_based_x() -> None:
 def test_cf_ch_config_rejects_invalid_x_values() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         CfChConfig(
-            run=True,
             flow_conditions=Path("flow_conditions.json"),
             x=-0.1,
         )
 
     with pytest.raises(ValueError, match="greater than start"):
         CfChConfig(
-            run=True,
             flow_conditions=Path("flow_conditions.json"),
             x=[1.0, 1.0, 2],
         )
 
 
-def test_config_node_repr_is_readable() -> None:
-    cfg = ConfigNode({"cf_ch": {"run": True, "x": [0.1, 1.0, 5]}})
-
-    assert "cf_ch" in repr(cfg)
-    assert "run" in repr(cfg)
-
-
 def test_cf_ch_config_is_frozen_after_init() -> None:
     config = CfChConfig(
-        run=True,
         flow_conditions=Path("flow_conditions.json"),
         x=1.0,
         wall_type="adiabatic",
     )
 
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(ValidationError, match="frozen"):
         config.mode = "laminar"
 
 
 def test_cf_ch_config_normalizes_values_in_post_init() -> None:
     config = CfChConfig(
-        run=True,
         flow_conditions=Path("flow_conditions.json"),
         x=1.0,
         mode=" LAMINAR ",

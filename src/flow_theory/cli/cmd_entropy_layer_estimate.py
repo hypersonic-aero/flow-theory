@@ -7,11 +7,7 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import (
-    EntropyLayerEstimateConfig,
-    parse_entropy_layer_estimate_config,
-    read_config,
-)
+from flow_theory.config import EntropyLayerEstimateConfig
 from flow_theory.runners import run_entropy_layer_estimate
 
 from .focused_config import write_focused_config
@@ -55,7 +51,7 @@ def cmd_entropy_layer_estimate(
     ] = None,
     x: Annotated[
         float | None,
-        typer.Option("--x", help="Streamwise station [m]."),
+        typer.Option("--x", help="Streamwise station \\[m]."),
     ] = None,
     mach: Annotated[
         float | None,
@@ -63,7 +59,7 @@ def cmd_entropy_layer_estimate(
     ] = None,
     nose_radius: Annotated[
         float | None,
-        typer.Option("--nose-radius", help="Nose radius [m]."),
+        typer.Option("--nose-radius", help="Nose radius \\[m]."),
     ] = None,
     gamma: Annotated[
         float,
@@ -88,25 +84,20 @@ def cmd_entropy_layer_estimate(
                     "x, mach, and nose_radius are required unless --config is provided"
                 )
 
-            runner_config = EntropyLayerEstimateConfig(
-                x=float(x),
-                mach=float(mach),
-                nose_radius=float(nose_radius),
-                gamma=float(gamma),
-                output=output,
+            runner_config = EntropyLayerEstimateConfig.from_dict(
+                {
+                    "x": x,
+                    "mach": mach,
+                    "nose_radius": nose_radius,
+                    "gamma": gamma,
+                    "output": output,
+                }
             )
         else:
             config_path = (
                 Path("entropy_layer_estimate.toml") if config is None else config
             )
-            cfg = read_config(config_path)
-            if not hasattr(cfg, "entropy_layer_estimate"):
-                raise ValueError(
-                    "Config file does not contain an [entropy_layer_estimate] section"
-                )
-            runner_config = parse_entropy_layer_estimate_config(
-                cfg.entropy_layer_estimate
-            )
+            runner_config = EntropyLayerEstimateConfig.from_file(config_path)
 
         run_entropy_layer_estimate(runner_config)
     except typer.Exit:

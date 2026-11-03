@@ -1,4 +1,4 @@
-"""Shared helpers for flow-theory run-section runners."""
+"""Shared helpers for the section runners."""
 
 # --------------------------------------------------
 # load necessary modules

@@ -1,4 +1,4 @@
-"""Starter [shock_standoff] section template for flow-theory init."""
+"""Starter [shock_standoff] section template."""
 
 
 # --------------------------------------------------

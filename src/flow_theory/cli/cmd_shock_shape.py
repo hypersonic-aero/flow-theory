@@ -10,13 +10,12 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import (
-    ShockShapeConfig,
-    parse_shock_shape_config,
-    read_config,
-)
+from flow_theory.config import ShockShapeConfig
+from flow_theory.geometry import BODY_GEOMETRIES
 from flow_theory.runners import run_shock_shape
-from flow_theory.templates import render_templates
+
+from .examples_command import build_examples_command
+from .focused_config import write_focused_config
 
 # --------------------------------------------------
 # shock-shape command group
@@ -39,16 +38,14 @@ def cmd_init_shock_shape(
         typer.Option("--force", "-f", help="Overwrite existing output file."),
     ] = False,
 ) -> None:
-    """Write a focused shock-shape configuration."""
+    """Write a shock-shape configuration starter file."""
     try:
-        if output.exists() and not force:
-            raise FileExistsError(f"output exists: {output} (use --force to overwrite)")
-
-        content = render_templates("shock_shape")
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(content, encoding="utf-8")
-        typer.echo(f"wrote {output}")
-        typer.echo(f"then run: flow-theory shock-shape run --config {output}")
+        write_focused_config(
+            "shock_shape",
+            output,
+            force,
+            "flow-theory shock-shape run",
+        )
     except (OSError, ValueError) as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(1) from None
@@ -81,18 +78,31 @@ def cmd_shock_shape(
     ] = None,
     geometry: Annotated[
         str,
-        typer.Option("--geometry", help="Body geometry (sphere, cone, ogive, wedge)."),
-    ] = "sphere",
+        typer.Option("--geometry", help=f"Body geometry ({', '.join(BODY_GEOMETRIES)})."),
+    ] = "cone",
     method: Annotated[
         str,
-        typer.Option("--method", help="Shock-shape correlation (default: billig)."),
+        typer.Option(
+            "--method", help="Shock-shape correlation: billig (default) or billig_blended."
+        ),
     ] = "billig",
     half_angle: Annotated[
         float | None,
         typer.Option(
             "--half-angle",
-            help="Half-angle [deg], required for cone/ogive/wedge geometries.",
+            help="Half-angle \\[deg], required for cone and wedge geometries.",
         ),
+    ] = None,
+    length: Annotated[
+        float | None,
+        typer.Option(
+            "--length",
+            help="Sharp-ogive length, tip to base \\[m], tangent-ogive only.",
+        ),
+    ] = None,
+    base_radius: Annotated[
+        float | None,
+        typer.Option("--base-radius", help="Base radius \\[m], tangent-ogive only."),
     ] = None,
     n_points: Annotated[
         int,
@@ -101,6 +111,13 @@ def cmd_shock_shape(
             help="Number of sample points used for both shock and surface zones.",
         ),
     ] = 100,
+    blend_nose_radii: Annotated[
+        float | None,
+        typer.Option(
+            "--blend-nose-radii",
+            help="billig_blended only: blend length in nose radii (default 35).",
+        ),
+    ] = None,
     x_e: Annotated[
         float,
         typer.Option(
@@ -110,7 +127,10 @@ def cmd_shock_shape(
     ] = 0.1,
     output: Annotated[
         Path | None,
-        typer.Option("--output", help="Optional Tecplot output path."),
+        typer.Option(
+            "--output",
+            help="Optional output path: .csv (shock x, y) or Tecplot ASCII (other extensions).",
+        ),
     ] = None,
 ) -> None:
     """Compute an approximate shock shape."""
@@ -122,12 +142,7 @@ def cmd_shock_shape(
         # read and run from the focused config when direct inputs are absent
         if not use_direct_options:
             config_path = Path("shock_shape.toml") if config is None else config
-            cfg = read_config(config_path)
-
-            if not hasattr(cfg, "shock_shape"):
-                raise ValueError("Config file does not contain a [shock_shape] section")
-
-            shock_shape_cfg = parse_shock_shape_config(cfg.shock_shape)
+            shock_shape_cfg = ShockShapeConfig.from_file(config_path)
             run_shock_shape(shock_shape_cfg)
             return
 
@@ -140,16 +155,24 @@ def cmd_shock_shape(
         if nose_radius is None:
             raise ValueError("nose_radius is required unless --config is provided")
 
+        # build the [geometry] table from the options that were given
+        geometry_table = {"type": geometry, "nose_radius": nose_radius}
+        shape_options = {"half_angle": half_angle, "length": length, "base_radius": base_radius}
+        for key, value in shape_options.items():
+            if value is not None:
+                geometry_table[key] = value
+
         # get the typed configuration dataclass
-        config = ShockShapeConfig(
-            flow_conditions=flow_conditions,
-            nose_radius=nose_radius,
-            geometry=geometry,
-            method=method,
-            half_angle=half_angle,
-            n_points=n_points,
-            x_e=x_e,
-            output=output,
+        config = ShockShapeConfig.from_dict(
+            {
+                "flow_conditions": flow_conditions,
+                "geometry": geometry_table,
+                "x_e": x_e,
+                "method": method,
+                "n_points": n_points,
+                "blend_nose_radii": blend_nose_radii,
+                "output": output,
+            }
         )
 
         # run the shared shock-shape implementation
@@ -160,3 +183,11 @@ def cmd_shock_shape(
     except Exception as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(1)
+
+
+# --------------------------------------------------
+# examples: bundled cases, copied into ./<name>/ to run
+# --------------------------------------------------
+shock_shape_app.command(name="examples")(
+    build_examples_command("shock_shape", "shock-shape")
+)

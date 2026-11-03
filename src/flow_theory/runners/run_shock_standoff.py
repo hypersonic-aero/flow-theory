@@ -1,4 +1,4 @@
-"""Runner for the [shock_standoff] section in flow-theory run configs."""
+"""Runner for the [shock_standoff] section."""
 
 # --------------------------------------------------
 # load necessary modules

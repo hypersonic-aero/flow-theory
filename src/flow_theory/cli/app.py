@@ -63,41 +63,18 @@ def callback(
 
 # --------------------------------------------------
 # register subcommands
-# note: subcommands are assigned to a rich help panel for better organization
+# notes:
+# - the order at which they are registered is the order in which they display
 # --------------------------------------------------
 
-# single calculators (no init file) - rich_help_panel="Calculators"
-app.add_typer(
-    boundary_layer_app,
-    name="bl",
-    rich_help_panel="Calculators",
-)
-app.add_typer(cf_ch_app, name="cf-ch", rich_help_panel="Calculators")
-app.add_typer(
-    entropy_layer_estimate_app,
-    name="entropy-layer-estimate",
-    rich_help_panel="Calculators",
-)
-app.add_typer(
-    entropy_layer_swallowing_app,
-    name="entropy-layer-swallowing",
-    rich_help_panel="Calculators",
-)
-app.add_typer(
-    shock_standoff_app,
-    name="shock-standoff",
-    rich_help_panel="Calculators",
-)
-app.add_typer(
-    shock_shape_app,
-    name="shock-shape",
-    rich_help_panel="Calculators",
-)
-app.add_typer(
-    transition_app,
-    name="transition",
-    rich_help_panel="Calculators",
-)
+# calculators: each has its own init (config template) and run
+app.add_typer(boundary_layer_app, name="bl")
+app.add_typer(cf_ch_app, name="cf-ch")
+app.add_typer(entropy_layer_estimate_app, name="entropy-layer-estimate")
+app.add_typer(entropy_layer_swallowing_app, name="entropy-layer-swallowing")
+app.add_typer(shock_standoff_app, name="shock-standoff")
+app.add_typer(shock_shape_app, name="shock-shape")
+app.add_typer(transition_app, name="transition")
 
 # --------------------------------------------------
 # main entry point

@@ -34,25 +34,15 @@ SECTION_RENDERERS = {
     "transition": render_transition_section,
 }
 
-SECTION_ORDER = [
-    "boundary_layer_thickness",
-    "cf_ch",
-    "shock_standoff",
-    "shock_shape",
-    "entropy_layer_estimate",
-    "entropy_layer_swallowing",
-    "transition",
-]
-
 
 # --------------------------------------------------
 # public API
 # --------------------------------------------------
 def render_templates(preset: str) -> str:
-    """Build full config text for a flow-theory init preset.
+    """Build the starter config text for one calculator's init command.
 
     Args:
-        preset: One registered section name or "all".
+        preset: Registered section name (a key of SECTION_RENDERERS).
 
     Returns:
         Full TOML template text.
@@ -67,22 +57,11 @@ def render_templates(preset: str) -> str:
         "",
     ]
 
-    # add requested section blocks in deterministic order
-    if preset == "all":
-        section_names = list(SECTION_ORDER)
-    else:
-        section_names = [preset]
+    # get section renderer function from registry (defined above)
+    render_section = SECTION_RENDERERS[preset]
 
-    # render sections as defined in separate template files
-    for section_name in section_names:
-        # get section renderer function from registry (defined above)
-        render_section = SECTION_RENDERERS[section_name]
-
-        # append rendered section text to lines
-        lines.append(render_section())
-
-        # add a blank line after each section for readability
-        lines.append("")
+    # append rendered section text to lines
+    lines.append(render_section())
 
     # join lines into a single string and return (rstrip to remove trailing whitespace, then add a final newline)
     return "\n".join(lines).rstrip() + "\n"

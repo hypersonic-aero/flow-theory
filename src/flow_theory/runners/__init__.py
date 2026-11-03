@@ -1,4 +1,4 @@
-"""Section runners for flow-theory run mode."""
+"""Section runners behind each calculator's run command."""
 
 from flow_theory.runners.run_boundary_layer_thickness import (
     run_boundary_layer_thickness,

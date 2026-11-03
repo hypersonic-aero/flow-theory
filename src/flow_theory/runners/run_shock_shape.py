@@ -1,4 +1,4 @@
-"""Runner for the [shock_shape] section in flow-theory run configs."""
+"""Runner for the [shock_shape] section."""
 
 # --------------------------------------------------
 # load necessary modules
@@ -31,12 +31,11 @@ def run_shock_shape(config: ShockShapeConfig) -> None:
     result = compute_shock_shape(
         mach=flow_state.mach,
         gamma=flow_state.gamma,
-        nose_radius=config.nose_radius,
         geometry=config.geometry,
-        method=config.method,
-        half_angle=config.half_angle,
-        n_points=config.n_points,
         x_e=config.x_e,
+        n_points=config.n_points,
+        method=config.method,
+        blend_nose_radii=config.blend_nose_radii,
     )
 
     # report and optionally write the result

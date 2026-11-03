@@ -13,7 +13,7 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import TransitionConfig, parse_transition_config, read_config
+from flow_theory.config import TransitionConfig
 from flow_theory.runners import run_transition
 
 from .focused_config import write_focused_config
@@ -95,20 +95,19 @@ def cmd_transition(
                 )
 
             # build the shared runner configuration from direct options
-            runner_config = TransitionConfig(
-                mach=float(mach),
-                re1=float(re1),
-                tw_te=float(tw_te),
-                method=method,
-                output=output,
+            runner_config = TransitionConfig.from_dict(
+                {
+                    "mach": mach,
+                    "re1": re1,
+                    "tw_te": tw_te,
+                    "method": method,
+                    "output": output,
+                }
             )
         else:
             # load the focused default configuration when no direct inputs are given
             config_path = Path("transition.toml") if config is None else config
-            cfg = read_config(config_path)
-            if not hasattr(cfg, "transition"):
-                raise ValueError("Config file does not contain a [transition] section")
-            runner_config = parse_transition_config(cfg.transition)
+            runner_config = TransitionConfig.from_file(config_path)
 
         # run the shared transition implementation
         run_transition(runner_config)

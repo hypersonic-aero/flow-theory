@@ -1,18 +1,22 @@
-"""Surface-geometry builders for flow-theory tools."""
+"""Bodies for flow-theory tools, built from canonical-geometries."""
 
 # --------------------------------------------------
 # package imports
 # --------------------------------------------------
-from .surface import (
-    SURFACE_BLEND_GEOMETRIES,
-    SURFACE_GEOMETRIES,
-    SurfaceGeometryResult,
-    build_surface_geometry,
+from .body import (
+    BODY_GEOMETRIES,
+    Body,
+    arc_length_at_x,
+    build_body,
+    fill_geometry_extent,
+    parse_geometry,
 )
 
 __all__ = [
-    "SURFACE_BLEND_GEOMETRIES",
-    "SURFACE_GEOMETRIES",
-    "SurfaceGeometryResult",
-    "build_surface_geometry",
+    "BODY_GEOMETRIES",
+    "Body",
+    "arc_length_at_x",
+    "build_body",
+    "fill_geometry_extent",
+    "parse_geometry",
 ]

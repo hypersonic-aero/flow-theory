@@ -7,11 +7,7 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import (
-    BoundaryLayerThicknessConfig,
-    parse_boundary_layer_thickness_config,
-    read_config,
-)
+from flow_theory.config import BoundaryLayerThicknessConfig
 from flow_theory.runners import run_boundary_layer_thickness
 
 from .focused_config import write_focused_config
@@ -55,7 +51,7 @@ def cmd_boundary_layer_thickness(
     ] = None,
     x: Annotated[
         float | None,
-        typer.Option("--x", help="Streamwise station [m]."),
+        typer.Option("--x", help="Streamwise station \\[m]."),
     ] = None,
     re1: Annotated[
         float | None,
@@ -97,28 +93,23 @@ def cmd_boundary_layer_thickness(
                 raise ValueError("re1 is required unless --config is provided")
 
             # build the shared runner configuration from direct options
-            runner_config = BoundaryLayerThicknessConfig(
-                x=float(x),
-                re1=float(re1),
-                method=method,
-                mach=mach,
-                tw_t0=tw_t0,
-                gamma=float(gamma),
-                output=output,
+            runner_config = BoundaryLayerThicknessConfig.from_dict(
+                {
+                    "x": x,
+                    "re1": re1,
+                    "method": method,
+                    "mach": mach,
+                    "tw_t0": tw_t0,
+                    "gamma": gamma,
+                    "output": output,
+                }
             )
         else:
             # load the focused default configuration when no direct inputs are given
             config_path = (
                 Path("boundary_layer_thickness.toml") if config is None else config
             )
-            cfg = read_config(config_path)
-            if not hasattr(cfg, "boundary_layer_thickness"):
-                raise ValueError(
-                    "Config file does not contain a [boundary_layer_thickness] section"
-                )
-            runner_config = parse_boundary_layer_thickness_config(
-                cfg.boundary_layer_thickness
-            )
+            runner_config = BoundaryLayerThicknessConfig.from_file(config_path)
 
         # run the shared thickness implementation
         run_boundary_layer_thickness(runner_config)

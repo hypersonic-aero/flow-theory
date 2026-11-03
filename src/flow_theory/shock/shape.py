@@ -1,4 +1,35 @@
-"""Empirical detached bow-shock shapes for blunt hypersonic bodies."""
+"""Empirical detached bow-shock shapes for blunt hypersonic bodies.
+
+Billig (1967) fits the bow shock ahead of a blunt body with a hyperbola,
+
+    x = -delta + R_c cot^2(beta) [ sqrt(1 + y^2 tan^2(beta) / R_c^2) - 1 ],
+
+with the nose tip at x = 0, the standoff distance delta, the shock radius of
+curvature at the vertex R_c, and the asymptote angle beta: the shock angle of the
+sharp body behind the nose (sharp cone or wedge; the Mach angle for a plate or
+cylinder). Written as a slope,
+
+    dx/dy = (y / R_c) / sqrt(1 + y^2 tan^2(beta) / R_c^2),
+
+the same curve follows from integrating dx/dy in y from the vertex. Here beta is
+taken at the local body station instead of once for the whole body: the sharp-cone
+(Taylor-Maccoll) or sharp-wedge (oblique-shock) angle of the surface angle at the
+same x. For a constant surface angle (plate, wedge, cone) this is Billig's
+hyperbola; for a curved body (tangent ogive) the shock angle follows the surface.
+
+The hyperbola's asymptote is offset from the sharp-body shock by about
+R_c cot(beta), which holds near the nose but overpredicts the shock far
+downstream, where the nose's influence fades. Method "billig_blended" (wedges and
+cones) blends Billig's shock into the sharp-body shock from the virtual origin,
+the apex of the body's straight surface extended forward,
+
+    x_v = R_n (1 - 1 / sin(theta)),    y_vo(x) = (x - x_v) tan(beta),
+    y(x) = w y_billig(x) + (1 - w) y_vo(x),   w = 1 / (1 + (x / R_n) / L),
+
+with the blend length L in nose radii. Both are inviscid: a laminar boundary
+layer pushes the real shock out further downstream (by about
+tan(beta)/tan(theta) times its displacement thickness on a cone).
+"""
 
 # --------------------------------------------------
 # load necessary modules
@@ -9,14 +40,12 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from canonical_geometries.config import GeometryConfig
 from gasdyn import solve_oblique, solve_taylor_maccoll
 from numpy.typing import NDArray
+from scipy.integrate import solve_ivp
 
-from flow_theory.geometry import (
-    SURFACE_BLEND_GEOMETRIES,
-    SURFACE_GEOMETRIES,
-    build_surface_geometry,
-)
+from flow_theory.geometry import Body, build_body
 
 from .standoff import ShockStandoffResult, compute_shock_standoff
 
@@ -38,8 +67,26 @@ _BILLIG_RC_PARAMS = {
     },
 }
 
-SHOCK_SHAPE_METHODS = ("billig",)
-SHOCK_SHAPE_GEOMETRIES = SURFACE_GEOMETRIES
+SHOCK_SHAPE_METHODS = ("billig", "billig_blended")
+
+# billig_blended: default blend length L [nose radii]
+_DEFAULT_BLEND_NOSE_RADII = 35.0
+
+# billig_blended needs a straight surface behind the nose (it has a virtual origin)
+_STRAIGHT_BODIES = ("wedge", "cone")
+
+# sharp-body shock table: shock angles from just above the Mach angle [deg] to near
+# normal, spaced geometrically so small surface angles (an ogive's base) are resolved
+_TABLE_SIZE = 200
+_TABLE_EXCESS_MIN = 1.0e-6
+_TABLE_SHOCK_ANGLE_MAX = 89.5
+
+# points of the dense body and shock samples the output points are taken from
+_DENSE_SIZE = 20001
+
+# the dense samples cluster geometrically toward the nose, starting at this fraction
+# of the nose scale (nose radius on the body, shock radius on the shock)
+_DENSE_FIRST_FRACTION = 1.0e-3
 
 
 # --------------------------------------------------
@@ -47,7 +94,20 @@ SHOCK_SHAPE_GEOMETRIES = SURFACE_GEOMETRIES
 # --------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class ShockShapeResult:
-    """Computed detached bow-shock locus."""
+    """Computed detached bow-shock locus and the body it belongs to.
+
+    Attributes:
+        x: Shock x from the vertex (x = -delta) to x_e [m]; points equally spaced in
+            arc length and turning angle (half each), so the vertex is resolved.
+        y: Shock y (distance from the axis or symmetry plane) [m].
+        body_x: Body x from the stagnation point to x_e [m], spread like the shock.
+        body_y: Body y [m].
+        standoff: Standoff estimate that places the shock vertex.
+        geometry: Body geometry type.
+        method: Shock-shape correlation name.
+        x_e: Streamwise end [m].
+        shock_radius: Shock radius of curvature at the vertex [m].
+    """
 
     x: NDArray[np.float64]
     y: NDArray[np.float64]
@@ -57,111 +117,276 @@ class ShockShapeResult:
     geometry: str
     method: str
     x_e: float
-    half_angle: float | None = None
-    asymptote_shock_angle: float | None = None
-    virtual_cone_origin: float | None = None
+    shock_radius: float
+
+
+# --------------------------------------------------
+# sharp-body shock angles: cones for axisymmetric bodies, wedges for planar ones
+# --------------------------------------------------
+def _cone_angle(mach: float, shock_angle: float, gamma: float) -> float:
+    """Cone half-angle [deg] whose attached shock has the given angle (Taylor-Maccoll)."""
+    result = solve_taylor_maccoll(mach=mach, shock_angle=shock_angle, gamma=gamma)
+    cone_angle = float(result.cone_angle)
+    return cone_angle
+
+
+def _wedge_angle(mach: float, shock_angle: float, gamma: float) -> float:
+    """Wedge half-angle [deg] whose attached shock has the given angle (oblique shock)."""
+    result = solve_oblique(mach=mach, shock_angle=shock_angle, gamma=gamma)
+    wedge_angle = float(result.deflection_angle)
+    return wedge_angle
+
+
+# body angle behind a given sharp-body shock, by nose shape: spherical noses sit on
+# axisymmetric bodies (cones), cylindrical noses on planar bodies (wedges)
+_BODY_ANGLE_SOLVERS = {
+    "sphere": _cone_angle,
+    "cylinder": _wedge_angle,
+}
 
 
 # --------------------------------------------------
 # helper functions
 # --------------------------------------------------
-def _build_billig_x_from_y(
-    y: NDArray[np.float64],
-    standoff_delta: float,
-    shock_radius: float,
-    tan_shock_angle: float,
-    cotangent_squared: float,
-) -> NDArray[np.float64]:
-    """Evaluate Billig's hyperbola fit as x(y)."""
+def _shock_angle_table(
+    mach: float, gamma: float, nose_shape: str
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Sharp-body shock angle against body angle, from 0 to the largest attached angle.
 
-    # build repeated factors for readability
-    tangent_squared = tan_shock_angle**2
+    The table is built by sweeping the shock angle and solving for the body angle,
+    which needs no root-finding and stays well-posed down to a body angle of zero
+    (where the shock is the Mach wave).
 
-    # evaluate the hyperbola relation in nose-tip coordinates
-    hyperbola_term = (
-        shock_radius
-        * cotangent_squared
-        * (np.sqrt(1.0 + tangent_squared * y**2 / shock_radius**2) - 1.0)
+    Returns:
+        Body angles [deg] (increasing, starting at 0) and their shock angles [deg]
+        (weak branch, starting at the Mach angle).
+    """
+
+    # shock angles, clustered just above the Mach angle
+    mach_angle = math.degrees(math.asin(1.0 / mach))
+    excess = np.geomspace(
+        _TABLE_EXCESS_MIN, _TABLE_SHOCK_ANGLE_MAX - mach_angle, _TABLE_SIZE
     )
-    x = np.asarray(-standoff_delta + hyperbola_term, dtype=float)
+    shock_angles = mach_angle + excess
 
-    return x
+    # body angle behind each shock
+    solve_body_angle = _BODY_ANGLE_SOLVERS[nose_shape]
+    kept_shock = []
+    kept_body = []
+    for shock_angle in shock_angles:
+        try:
+            body_angle = solve_body_angle(mach, shock_angle, gamma)
+        except RuntimeError:
+            # the weakest shocks at high Mach sit on cones thinner than the
+            # Taylor-Maccoll solver resolves; skip them, the table's (0, Mach angle)
+            # entry covers them (the shock angle barely changes down there)
+            if not kept_body:
+                continue
+            raise
+        kept_shock.append(shock_angle)
+        kept_body.append(body_angle)
+    body_angles = np.array(kept_body)
+    shock_angles = np.array(kept_shock)
+
+    # keep the weak branch: up to the largest body angle (beyond it the shock detaches)
+    i_max = int(np.argmax(body_angles))
+    table_body = np.concatenate([[0.0], body_angles[: i_max + 1]])
+    table_shock = np.concatenate([[mach_angle], shock_angles[: i_max + 1]])
+
+    return table_body, table_shock
 
 
-def _build_billig_y_from_x(
-    x: NDArray[np.float64],
+def _surface_angle_along_x(
+    body: Body,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Surface angle [deg] of the body behind the nose, sampled against x.
+
+    Interpolating in the result holds the end values, so the nose region (and the
+    region ahead of the body) takes the angle where the nose ends.
+    """
+
+    # from the end of the nose to x_e (a single station if x_e lies on the nose)
+    s_junction = float(body.profile.junctions[0])
+    s_last = max(body.s_end, s_junction)
+    s = np.linspace(s_junction, s_last, _DENSE_SIZE)
+
+    # x and the surface angle at each station
+    x, _ = body.profile.point(s)
+    tx, ty = body.profile.tangent(s)
+    surface_angle = np.degrees(np.arctan2(ty, tx))
+
+    return x, surface_angle
+
+
+def _integrate_billig(
     standoff_delta: float,
     shock_radius: float,
-    tan_shock_angle: float,
-    cotangent_squared: float,
-) -> NDArray[np.float64]:
-    """Evaluate Billig's hyperbola fit as y(x)."""
-
-    # build the dimensionless square-root argument
-    alpha = 1.0 + (x + standoff_delta) / (shock_radius * cotangent_squared)
-    radicand = np.maximum(alpha**2 - 1.0, 0.0)
-
-    # invert the hyperbola relation and keep non-negative y
-    y = shock_radius / tan_shock_angle * np.sqrt(radicand)
-    y = np.asarray(np.maximum(y, 0.0), dtype=float)
-
-    return y
-
-
-def _blend_billig_to_asymptote(
-    x: NDArray[np.float64],
-    y_billig: NDArray[np.float64],
-    y_asymptote: NDArray[np.float64],
+    station_x: NDArray[np.float64],
+    station_tan_shock: NDArray[np.float64],
     x_e: float,
-) -> NDArray[np.float64]:
-    """Blend near-nose Billig shape into a far-field asymptote."""
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Integrate Billig's slope dx/dy from the vertex to x_e, with the local asymptote angle.
 
-    # set blend-window bounds along the streamwise coordinate
-    blend_start = max(0.0, 0.15 * x_e)
-    blend_end = max(blend_start + 1.0e-12, 0.60 * x_e)
+    Args:
+        standoff_delta: Standoff distance; the vertex is at x = -delta.
+        shock_radius: Shock radius of curvature at the vertex.
+        station_x: Body stations (x).
+        station_tan_shock: tan of the sharp-body shock angle at each station.
+        x_e: Streamwise end.
 
-    # convert x to a clamped [0, 1] interpolation coordinate
-    xi = (x - blend_start) / (blend_end - blend_start)
-    xi = np.clip(xi, 0.0, 1.0)
+    Returns:
+        Dense shock points (x, y) from the vertex to x_e.
+    """
 
-    # use a smoothstep profile to avoid slope jumps at blend bounds
-    weight = xi * xi * (3.0 - 2.0 * xi)
+    # Billig's slope, with the asymptote angle of the body station at the same x
+    def slope(y: float, x: NDArray[np.float64]) -> list[float]:
+        tan_shock = np.interp(x[0], station_x, station_tan_shock)
+        ratio = y * tan_shock / shock_radius
+        dx_dy = (y / shock_radius) / math.sqrt(1.0 + ratio**2)
+        return [dx_dy]
 
-    # build the composite y-locus
-    y = (1.0 - weight) * y_billig + weight * y_asymptote
-    y = np.asarray(y, dtype=float)
+    # stop where the shock reaches x_e
+    def reaches_x_e(y: float, x: NDArray[np.float64]) -> float:
+        return x[0] - x_e
 
-    return y
+    reaches_x_e.terminal = True
+    reaches_x_e.direction = 1
 
+    # bound on y: even the steepest asymptote angle reaches x_e by then
+    tan_max = float(np.max(station_tan_shock))
+    reach = 1.0 + (x_e + standoff_delta) * tan_max**2 / shock_radius
+    y_bound = 1.01 * shock_radius / tan_max * math.sqrt(reach**2 - 1.0)
 
-def _compute_asymptote_shock_angle(
-    mach: float,
-    gamma: float,
-    geometry: str,
-    half_angle: float,
-) -> float:
-    """Compute the far-field shock angle for blending."""
-
-    # compute a conical-shock angle for cone geometry
-    if geometry == "cone":
-        cone_result = solve_taylor_maccoll(
-            mach=mach,
-            cone_angle=half_angle,
-            gamma=gamma,
-        )
-        shock_angle = float(cone_result.shock_angle)
-        return shock_angle
-
-    # compute a weak oblique-shock angle for line-based deflection bodies
-    oblique_result = solve_oblique(
-        mach=mach,
-        deflection_angle=half_angle,
-        gamma=gamma,
-        branch="weak",
+    # integrate from the vertex
+    scale = x_e + standoff_delta
+    solution = solve_ivp(
+        slope,
+        (0.0, y_bound),
+        [-standoff_delta],
+        events=reaches_x_e,
+        rtol=1.0e-10,
+        atol=1.0e-12 * scale,
+        dense_output=True,
     )
-    shock_angle = float(oblique_result.shock_angle)
+    if solution.status != 1:
+        raise RuntimeError(f"shock integration did not reach x_e: {solution.message}")
+    y_end = float(solution.t_events[0][0])
 
-    return shock_angle
+    # dense samples, clustered at the vertex, with exact ends
+    y = _dense_samples(y_end, shock_radius)
+    x = solution.sol(y)[0]
+    x[0] = -standoff_delta
+    x[-1] = x_e
+
+    return x, y
+
+
+def _dense_samples(end: float, nose_scale: float) -> NDArray[np.float64]:
+    """Dense samples from 0 to end, spaced geometrically from the nose scale down.
+
+    Evenly spaced samples would put a small nose on a long body inside a single
+    step; geometric spacing gives every length scale, from a fraction of the nose
+    to the whole body, the same number of samples.
+
+    Args:
+        end: Last sample (arc length or y at x_e).
+        nose_scale: Length of the nose region (nose radius or shock radius).
+
+    Returns:
+        Increasing samples, starting at 0 and ending exactly at end.
+    """
+
+    # first nonzero sample: a fraction of the nose, but never past the end
+    first = min(_DENSE_FIRST_FRACTION * nose_scale, 0.5 * end)
+
+    # geometric samples behind a sample at 0
+    clustered = np.geomspace(first, end, _DENSE_SIZE - 1)
+    samples = np.concatenate([[0.0], clustered])
+
+    return samples
+
+
+def _spacing_measure(
+    x: NDArray[np.float64], y: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """Measure along a dense curve that weighs arc length and turning angle equally.
+
+    Points equally spaced in this measure put half of them evenly along the length
+    and half where the curve turns, so a small nose (or the shock vertex) is resolved
+    on a long body.
+
+    Returns:
+        Cumulative measure at each dense point, from 0 to 1.
+    """
+
+    # arc length along the dense curve
+    segment_lengths = np.hypot(np.diff(x), np.diff(y))
+    arc = np.concatenate([[0.0], np.cumsum(segment_lengths)])
+
+    # turning angle, counted at the point between two segments
+    heading = np.unwrap(np.arctan2(np.diff(y), np.diff(x)))
+    turning = np.zeros_like(arc)
+    turning[1:-1] = np.cumsum(np.abs(np.diff(heading)))
+    turning[-1] = turning[-2]
+
+    # half each; arc length alone for a straight curve
+    measure = arc / arc[-1]
+    if turning[-1] > 0.0:
+        measure = 0.5 * (arc / arc[-1] + turning / turning[-1])
+
+    return measure
+
+
+def _spread_points(
+    x: NDArray[np.float64], y: NDArray[np.float64], n_points: int
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Points along a densely sampled curve, equally spaced in arc length and turning angle."""
+
+    # equal steps in the measure
+    measure = _spacing_measure(x, y)
+    measure_out = np.linspace(0.0, 1.0, n_points)
+    x_out = np.interp(measure_out, measure, x)
+    y_out = np.interp(measure_out, measure, y)
+
+    return x_out, y_out
+
+
+def _blend_with_virtual_origin(
+    x: NDArray[np.float64],
+    y: NDArray[np.float64],
+    nose_radius: float,
+    surface_angle: float,
+    tan_shock: float,
+    blend_nose_radii: float,
+) -> NDArray[np.float64]:
+    """Blend Billig's shock into the sharp-body shock from the virtual origin.
+
+    Args:
+        x: Dense Billig shock x [m].
+        y: Dense Billig shock y [m].
+        nose_radius: Nose radius [m].
+        surface_angle: Half-angle of the straight surface behind the nose [deg].
+        tan_shock: tan of the sharp-body shock angle of that surface.
+        blend_nose_radii: Blend length L [nose radii].
+
+    Returns:
+        Blended shock y at the same x.
+    """
+
+    # virtual origin: the straight surface extended forward to the axis
+    x_virtual = nose_radius * (1.0 - 1.0 / math.sin(math.radians(surface_angle)))
+
+    # sharp-body shock from the virtual origin
+    y_virtual = (x - x_virtual) * tan_shock
+
+    # weight: Billig at the nose (x <= 0), fading algebraically with x / R_n
+    xi = np.maximum(x, 0.0) / nose_radius
+    weight = 1.0 / (1.0 + xi / blend_nose_radii)
+
+    # blend at the same x
+    y_blended = weight * y + (1.0 - weight) * y_virtual
+
+    return y_blended
 
 
 # --------------------------------------------------
@@ -170,12 +395,11 @@ def _compute_asymptote_shock_angle(
 def compute_shock_shape(
     mach: float,
     gamma: float,
-    nose_radius: float,
-    geometry: str = "sphere",
-    method: str = "billig",
-    half_angle: float | None = None,
+    geometry: GeometryConfig,
+    x_e: float,
     n_points: int = 100,
-    x_e: float | None = None,
+    method: str = "billig",
+    blend_nose_radii: float | None = None,
 ) -> ShockShapeResult:
     """Compute a detached bow-shock locus.
 
@@ -185,18 +409,20 @@ def compute_shock_shape(
     Args:
         mach: Freestream Mach number.
         gamma: Specific heat ratio.
-        nose_radius: Body nose radius.
-        geometry: Body geometry supported by the selected correlation.
-        method: Shock-shape correlation name.
-        half_angle: Half-angle used for cone/wedge/ogive geometries.
-        n_points: Number of sampled shock-locus points.
-        x_e: Streamwise endpoint for body and shock sampling.
+        geometry: Body geometry (see flow_theory.geometry.parse_geometry).
+        x_e: Streamwise end of the shock and body [m].
+        n_points: Number of points on the shock and on the body.
+        method: Shock-shape correlation name: "billig", or "billig_blended"
+            (wedges and cones; see the module docstring).
+        blend_nose_radii: billig_blended only: blend length L [nose radii]
+            (default 35).
 
     Returns:
-        Typed shock coordinates and the standoff result used to construct them.
+        Shock and body points and the standoff result used to place the shock.
 
     Raises:
-        ValueError: If an input or selector is invalid.
+        ValueError: If an input or selector is invalid, or the sharp-body shock
+            would detach somewhere on the body.
 
     References:
         Billig (1967), "Shock-wave shapes around spherical- and cylindrical-nosed
@@ -204,70 +430,44 @@ def compute_shock_shape(
     """
 
     # normalize selectors
-    geometry_name = str(geometry).strip().lower()
     method_name = str(method).strip().lower()
 
-    # validate shape-specific inputs
-    if geometry_name not in SHOCK_SHAPE_GEOMETRIES:
-        raise ValueError(
-            f"geometry must be one of {SHOCK_SHAPE_GEOMETRIES}: got {geometry_name!r}"
-        )
+    # validate inputs
     if method_name not in SHOCK_SHAPE_METHODS:
         raise ValueError(
             f"method must be one of {SHOCK_SHAPE_METHODS}: got {method_name!r}"
         )
     if isinstance(n_points, bool) or not isinstance(n_points, int) or n_points < 2:
         raise ValueError(f"n_points must be an integer of at least 2: {n_points}")
+    if blend_nose_radii is not None:
+        if method_name != "billig_blended":
+            raise ValueError("blend_nose_radii only applies to method 'billig_blended'")
+        if not math.isfinite(blend_nose_radii) or blend_nose_radii <= 0.0:
+            raise ValueError(f"blend_nose_radii must be positive: {blend_nose_radii}")
 
-    # read direct input values
-    x_e_raw = x_e
-    half_angle_raw = half_angle
+    # build the body up to x_e
+    body = build_body(geometry, x_e)
 
-    # validate the streamwise endpoint used for all geometries
-    if x_e_raw is None:
-        raise ValueError("x_e is required")
-    x_e_value = float(x_e_raw)
-    if not math.isfinite(x_e_value) or x_e_value <= 0.0:
-        raise ValueError(f"x_e must be finite and positive: {x_e_value}")
-
-    # validate geometry-specific angle requirements
-    if geometry_name in SURFACE_BLEND_GEOMETRIES:
-        if half_angle_raw is None:
+    # check: billig_blended needs a straight surface behind the nose (a virtual origin)
+    if method_name == "billig_blended":
+        has_half_angle = getattr(geometry, "half_angle", 0.0) > 0.0
+        if body.geometry not in _STRAIGHT_BODIES or not has_half_angle:
             raise ValueError(
-                "half_angle is required for cone, ogive, and wedge geometries"
+                "method 'billig_blended' needs a wedge or cone with half_angle > 0 "
+                f"(a straight surface with a virtual origin): got {body.geometry}"
             )
-        half_angle_value = float(half_angle_raw)
-        if not math.isfinite(half_angle_value) or half_angle_value <= 0.0:
-            raise ValueError(
-                f"half_angle must be finite and positive: {half_angle_value}"
-            )
-    else:
-        half_angle_value = None
-
-    # build body-surface coordinates and geometry metadata
-    surface_geometry = build_surface_geometry(
-        geometry=geometry_name,
-        nose_radius=nose_radius,
-        x_e=x_e_value,
-        n_points=n_points,
-        half_angle=half_angle_value,
-    )
 
     # compute the standoff distance used by the shock-shape correlation
-    standoff_geometry = surface_geometry.standoff_geometry
-
     standoff = compute_shock_standoff(
         mach=mach,
-        nose_radius=nose_radius,
-        geometry=standoff_geometry,
+        nose_radius=body.nose_radius,
+        geometry=body.nose_shape,
         method="ambrosio_wortman",
         gamma=gamma,
     )
 
     # read Billig geometry constants for the shock radius relation
-    billig_geometry = surface_geometry.billig_reference_geometry
-
-    radius_params = _BILLIG_RC_PARAMS[billig_geometry]
+    radius_params = _BILLIG_RC_PARAMS[body.nose_shape]
     radius_coefficient = radius_params["coefficient"]
     exponent_coefficient = radius_params["exponent_coefficient"]
     exponent_power = radius_params["exponent_power"]
@@ -276,74 +476,66 @@ def compute_shock_shape(
     shock_radius = (
         radius_coefficient
         * math.exp(exponent_coefficient / (mach - 1.0) ** exponent_power)
-        * nose_radius
+        * body.nose_radius
     )
 
-    # use the Mach angle for the asymptote of the sphere correlation
-    shock_angle = math.asin(1.0 / mach)
-    tan_shock_angle = math.tan(shock_angle)
-    cotangent_squared = 1.0 / tan_shock_angle**2
+    # sharp-body shock angle for every surface angle the body has
+    table_body, table_shock = _shock_angle_table(mach, gamma, body.nose_shape)
+    station_x, surface_angle = _surface_angle_along_x(body)
 
-    # build the x-grid used to sample the shock from the vertex to x_e
-    x = np.linspace(-standoff.delta, x_e_value, n_points)
+    # check: the sharp-body shock stays attached everywhere
+    steepest = float(np.max(surface_angle))
+    if steepest > table_body[-1]:
+        raise ValueError(
+            f"the surface angle reaches {steepest:.2f} deg, past the largest angle with an "
+            f"attached shock at M = {mach} ({table_body[-1]:.2f} deg)"
+        )
 
-    # evaluate Billig's shape on the streamwise sampling grid
-    y_billig = _build_billig_y_from_x(
-        x=x,
+    # asymptote angle at each body station
+    station_shock = np.interp(surface_angle, table_body, table_shock)
+    station_tan_shock = np.tan(np.radians(station_shock))
+
+    # integrate the shock from the vertex to x_e, then spread its points
+    x_dense, y_dense = _integrate_billig(
         standoff_delta=standoff.delta,
         shock_radius=shock_radius,
-        tan_shock_angle=tan_shock_angle,
-        cotangent_squared=cotangent_squared,
+        station_x=station_x,
+        station_tan_shock=station_tan_shock,
+        x_e=x_e,
     )
 
-    # read shared body-surface coordinates
-    body_x = surface_geometry.body_x
-    body_y = surface_geometry.body_y
-
-    # compute geometry-specific surface and shock continuation
-    if surface_geometry.requires_blend:
-        assert half_angle_value is not None
-        assert surface_geometry.virtual_cone_origin is not None
-
-        # read the virtual origin from geometry model output
-        virtual_cone_origin = surface_geometry.virtual_cone_origin
-
-        # compute the asymptotic shock angle based on selected geometry
-        asymptote_shock_angle = _compute_asymptote_shock_angle(
-            mach=mach,
-            gamma=gamma,
-            geometry=geometry_name,
-            half_angle=half_angle_value,
+    # billig_blended: fade into the sharp-body shock from the virtual origin
+    if method_name == "billig_blended":
+        if blend_nose_radii is None:
+            blend_nose_radii = _DEFAULT_BLEND_NOSE_RADII
+        y_dense = _blend_with_virtual_origin(
+            x=x_dense,
+            y=y_dense,
+            nose_radius=body.nose_radius,
+            surface_angle=float(surface_angle[-1]),
+            tan_shock=float(station_tan_shock[-1]),
+            blend_nose_radii=blend_nose_radii,
         )
-        asymptote_angle_rad = math.radians(asymptote_shock_angle)
-        asymptote_tangent = math.tan(asymptote_angle_rad)
-        y_asymptote = asymptote_tangent * (x + virtual_cone_origin)
-        y_asymptote = np.asarray(np.maximum(y_asymptote, 0.0), dtype=float)
 
-        # blend near-nose Billig shock into far-field asymptotic shock line
-        y = _blend_billig_to_asymptote(
-            x=x,
-            y_billig=y_billig,
-            y_asymptote=y_asymptote,
-            x_e=x_e_value,
-        )
-    else:
-        y = y_billig
-        asymptote_shock_angle = None
-        virtual_cone_origin = None
+    x, y = _spread_points(x_dense, y_dense, n_points)
+
+    # body points from the stagnation point to x_e, spread the same way (exact points)
+    s_dense = _dense_samples(body.s_end, body.nose_radius)
+    x_body_dense, y_body_dense = body.profile.point(s_dense)
+    measure = _spacing_measure(x_body_dense, y_body_dense)
+    s_body = np.interp(np.linspace(0.0, 1.0, n_points), measure, s_dense)
+    body_x, body_y = body.profile.point(s_body)
 
     result = ShockShapeResult(
         x=x,
         y=y,
-        body_x=body_x,
-        body_y=body_y,
+        body_x=np.asarray(body_x, dtype=float),
+        body_y=np.asarray(body_y, dtype=float),
         standoff=standoff,
-        geometry=geometry_name,
+        geometry=body.geometry,
         method=method_name,
-        x_e=x_e_value,
-        half_angle=half_angle_value,
-        asymptote_shock_angle=asymptote_shock_angle,
-        virtual_cone_origin=virtual_cone_origin,
+        x_e=float(x_e),
+        shock_radius=shock_radius,
     )
 
     return result

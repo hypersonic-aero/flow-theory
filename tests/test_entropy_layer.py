@@ -5,13 +5,11 @@ from pathlib import Path
 import pytest
 import typer
 
-from flow_theory.cli.cmd_run import cmd_run
+from flow_theory.cli.cmd_entropy_layer_estimate import cmd_entropy_layer_estimate
+from flow_theory.cli.cmd_entropy_layer_swallowing import cmd_entropy_layer_swallowing
 from flow_theory.config import (
-    ConfigNode,
     EntropyLayerEstimateConfig,
     EntropyLayerSwallowingConfig,
-    parse_entropy_layer_estimate_config,
-    parse_entropy_layer_swallowing_config,
 )
 from flow_theory.entropy_layer import (
     entropy_layer_thickness,
@@ -62,26 +60,20 @@ def test_swallowing_distance_separates_unswallowed_and_swallowed_regions() -> No
 
 
 def test_parse_entropy_layer_workflow_configs() -> None:
-    estimate = parse_entropy_layer_estimate_config(
-        ConfigNode(
-            {
-                "run": True,
-                "x": 0.1,
-                "mach": 8.0,
-                "nose_radius": 0.0254,
-            }
-        )
+    estimate = EntropyLayerEstimateConfig.from_dict(
+        {
+            "x": 0.1,
+            "mach": 8.0,
+            "nose_radius": 0.0254,
+        }
     )
-    swallowing = parse_entropy_layer_swallowing_config(
-        ConfigNode(
-            {
-                "run": True,
-                "mach": 8.0,
-                "re1": 3.0e6,
-                "nose_radius": 0.0254,
-                "tw_t0": 0.4,
-            }
-        )
+    swallowing = EntropyLayerSwallowingConfig.from_dict(
+        {
+            "mach": 8.0,
+            "re1": 3.0e6,
+            "nose_radius": 0.0254,
+            "tw_t0": 0.4,
+        }
     )
 
     assert isinstance(estimate, EntropyLayerEstimateConfig)
@@ -90,20 +82,19 @@ def test_parse_entropy_layer_workflow_configs() -> None:
     assert swallowing.re1 == 3.0e6
 
 
-def test_run_command_executes_both_entropy_layer_sections(tmp_path: Path) -> None:
+def test_run_commands_execute_their_own_entropy_layer_section(tmp_path: Path) -> None:
+    """One config file can hold both sections; each run command reads its own."""
     estimate_path = tmp_path / "entropy_estimate.dat"
     swallowing_path = tmp_path / "entropy_swallowing.dat"
     config_path = tmp_path / "flow_theory.toml"
     config_text = f"""
 [entropy_layer_estimate]
-run = true
 x = [0.1, 0.2]
 mach = 8.0
 nose_radius = 0.0254
 output = "{estimate_path}"
 
 [entropy_layer_swallowing]
-run = true
 mach = 8.0
 re1 = 3.0e6
 nose_radius = 0.0254
@@ -113,9 +104,10 @@ output = "{swallowing_path}"
     config_path.write_text(config_text, encoding="utf-8")
 
     try:
-        cmd_run(config_path)
+        cmd_entropy_layer_estimate(config=config_path)
+        cmd_entropy_layer_swallowing(config=config_path)
     except typer.Exit as error:
-        pytest.fail(f"flow-theory run exited unexpectedly: {error}")
+        pytest.fail(f"entropy-layer run exited unexpectedly: {error}")
 
     estimate_text = estimate_path.read_text(encoding="utf-8")
     swallowing_text = swallowing_path.read_text(encoding="utf-8")

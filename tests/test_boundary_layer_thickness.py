@@ -6,12 +6,8 @@ import pytest
 import typer
 
 from flow_theory.boundary_layer import compute_boundary_layer_thickness
-from flow_theory.cli.cmd_run import cmd_run
-from flow_theory.config import (
-    BoundaryLayerThicknessConfig,
-    ConfigNode,
-    parse_boundary_layer_thickness_config,
-)
+from flow_theory.cli.cmd_boundary_layer_thickness import cmd_boundary_layer_thickness
+from flow_theory.config import BoundaryLayerThicknessConfig
 from flow_theory.entropy_layer import swallowing_distance
 
 
@@ -63,17 +59,14 @@ def test_entropy_swallowing_preserves_reference_temperature_result() -> None:
 
 
 def test_parse_boundary_layer_thickness_config() -> None:
-    config = parse_boundary_layer_thickness_config(
-        ConfigNode(
-            {
-                "run": True,
-                "x": [0.1, 1.0],
-                "re1": 3.0e6,
-                "method": "eckert_reference",
-                "mach": 8.0,
-                "tw_t0": 0.4,
-            }
-        )
+    config = BoundaryLayerThicknessConfig.from_dict(
+        {
+            "x": [0.1, 1.0],
+            "re1": 3.0e6,
+            "method": "eckert_reference",
+            "mach": 8.0,
+            "tw_t0": 0.4,
+        }
     )
 
     assert isinstance(config, BoundaryLayerThicknessConfig)
@@ -88,7 +81,6 @@ def test_run_command_executes_boundary_layer_thickness_section(
     config_path = tmp_path / "flow_theory.toml"
     config_text = f"""
 [boundary_layer_thickness]
-run = true
 x = [0.1, 1.0]
 re1 = 1.0e6
 method = "blasius"
@@ -97,9 +89,9 @@ output = "{output_path}"
     config_path.write_text(config_text, encoding="utf-8")
 
     try:
-        cmd_run(config_path)
+        cmd_boundary_layer_thickness(config=config_path)
     except typer.Exit as error:
-        pytest.fail(f"flow-theory run exited unexpectedly: {error}")
+        pytest.fail(f"flow-theory bl run exited unexpectedly: {error}")
 
     output_text = output_path.read_text(encoding="utf-8")
     assert 'ZONE T="boundary-layer thickness blasius", I=2' in output_text

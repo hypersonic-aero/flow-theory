@@ -1,4 +1,4 @@
-"""Runner for the [cf_ch] section in flow-theory run configs."""
+"""Runner for the [cf_ch] section."""
 
 # --------------------------------------------------
 # load necessary modules

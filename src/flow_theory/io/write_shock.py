@@ -1,4 +1,4 @@
-"""Terminal and Tecplot output for shock calculations."""
+"""Terminal, Tecplot and CSV output for shock calculations."""
 
 # --------------------------------------------------
 # load necessary modules
@@ -83,6 +83,15 @@ def write_shock_shape(
         logger.info("shock-shape output file is not configured; skipping file write")
         return
 
+    # write in the format the extension picks (Tecplot unless registered otherwise)
+    write = SHOCK_SHAPE_WRITERS.get(output.suffix.lower(), _write_shock_shape_tecplot)
+    write(result, output)
+    logger.info("wrote %s", output)
+
+
+def _write_shock_shape_tecplot(result: ShockShapeResult, output: Path) -> None:
+    """Write the shock and the body as two Tecplot ASCII zones."""
+
     # write both sampled zones: shock locus and body surface
     shock_values = np.column_stack([result.x, result.y])
     body_values = np.column_stack([result.body_x, result.body_y])
@@ -94,4 +103,16 @@ def write_shock_shape(
         tecplot.write_zone(shock_zone_name, shock_values)
         tecplot.write_zone(body_zone_name, body_values)
 
-    logger.info("wrote %s", output)
+
+def _write_shock_shape_csv(result: ShockShapeResult, output: Path) -> None:
+    """Write the shock alone as x, y columns with a header (e.g. for grid-generator)."""
+
+    # one row per shock point
+    values = np.column_stack([result.x, result.y])
+    np.savetxt(output, values, delimiter=",", header="x,y", comments="", fmt="%.16e")
+
+
+# shock-shape writers by file extension; other extensions get Tecplot ASCII
+SHOCK_SHAPE_WRITERS = {
+    ".csv": _write_shock_shape_csv,
+}

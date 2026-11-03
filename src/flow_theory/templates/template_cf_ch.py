@@ -1,4 +1,4 @@
-"""Starter [cf_ch] section template for flow-theory init."""
+"""Starter [cf_ch] section template."""
 
 
 # --------------------------------------------------

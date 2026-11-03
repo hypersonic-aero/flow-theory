@@ -10,11 +10,7 @@ from typing import Annotated
 
 import typer
 
-from flow_theory.config import (
-    ShockStandoffConfig,
-    parse_shock_standoff_config,
-    read_config,
-)
+from flow_theory.config import ShockStandoffConfig
 from flow_theory.runners import run_shock_standoff
 
 from .focused_config import write_focused_config
@@ -106,22 +102,19 @@ def cmd_shock_standoff(
                 raise ValueError("nose_radius is required unless --config is provided")
 
             # build the shared runner configuration from direct options
-            runner_config = ShockStandoffConfig(
-                flow_conditions=flow_conditions,
-                nose_radius=nose_radius,
-                geometry=geometry,
-                method=method,
-                output=output,
+            runner_config = ShockStandoffConfig.from_dict(
+                {
+                    "flow_conditions": flow_conditions,
+                    "nose_radius": nose_radius,
+                    "geometry": geometry,
+                    "method": method,
+                    "output": output,
+                }
             )
         else:
             # load the focused default configuration when no direct inputs are given
             config_path = Path("shock_standoff.toml") if config is None else config
-            cfg = read_config(config_path)
-            if not hasattr(cfg, "shock_standoff"):
-                raise ValueError(
-                    "Config file does not contain a [shock_standoff] section"
-                )
-            runner_config = parse_shock_standoff_config(cfg.shock_standoff)
+            runner_config = ShockStandoffConfig.from_file(config_path)
 
         # run the shared shock-standoff implementation
         run_shock_standoff(runner_config)
