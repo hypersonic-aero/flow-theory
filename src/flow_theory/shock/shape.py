@@ -360,39 +360,6 @@ def _spread_points(
     return x_out, y_out
 
 
-def _sharp_body_profile(
-    geometry: GeometryConfig, x_e: float
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """The sharp body a blunt body follows behind its nose, from its tip (virtual origin).
-
-    Args:
-        geometry: Wedge, cone (half_angle > 0) or tangent ogive.
-        x_e: Streamwise end [m]; the profile reaches it (an ogive ends at its base,
-            where the method of characteristics continues it as a cylinder).
-
-    Returns:
-        Profile x and radius (or half-thickness) [m], from the sharp tip.
-    """
-
-    # wedge and cone: the straight surface extended forward to the axis
-    if geometry.type in ("wedge", "cone"):
-        half_angle = math.radians(geometry.half_angle)
-        x_tip = geometry.nose_radius * (1.0 - 1.0 / math.sin(half_angle))
-        x = np.linspace(x_tip, x_e, _SHARP_BODY_SIZE)
-        r = (x - x_tip) * math.tan(half_angle)
-        return x, r
-
-    # tangent ogive: the ogive arc from the sharp tip to the base (or x_e before it)
-    ogive = geometry.build()
-    x_base, y_base = ogive.base_point
-    radius = ogive.ogive_radius
-    x = np.linspace(ogive.sharp_tip_x, min(x_base, x_e), _SHARP_BODY_SIZE)
-    r = np.sqrt(np.maximum(radius**2 - (x_base - x) ** 2, 0.0)) + y_base - radius
-    r[0] = 0.0
-
-    return x, r
-
-
 def _blend(
     x: NDArray[np.float64],
     y_billig: NDArray[np.float64],
@@ -539,7 +506,8 @@ def compute_shock_shape(
     # billig_blended: Billig's asymptote is the sharp body's tip shock, the same at every
     # station (the sharp-body shock takes over the body's shape downstream)
     if method_name == "billig_blended":
-        sharp_x, sharp_r = _sharp_body_profile(geometry, x_e)
+        # the sharp body behind the nose, from its tip (virtual origin) to x_e
+        sharp_x, sharp_r = geometry.build().sharp_profile(x_e, _SHARP_BODY_SIZE)
         tip_angle = math.degrees(
             math.atan2(sharp_r[1] - sharp_r[0], sharp_x[1] - sharp_x[0])
         )
