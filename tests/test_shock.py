@@ -9,7 +9,7 @@ import math
 
 import numpy as np
 import pytest
-from gasdyn import solve_oblique, solve_taylor_maccoll
+from gasdyn import solve_oblique, solve_sharp_body, solve_taylor_maccoll
 
 from flow_theory.geometry import parse_geometry
 from flow_theory.shock import compute_shock_shape, compute_shock_standoff
@@ -386,21 +386,63 @@ def test_billig_blended_fades_from_billig_to_the_virtual_origin_shock() -> None:
     [
         {"type": "plate", "nose_radius": 0.01},
         {"type": "cone", "nose_radius": 0.01, "half_angle": 0.0},
-        {
-            "type": "tangent-ogive",
-            "nose_radius": 0.002,
-            "length": 0.25,
-            "base_radius": 0.03,
-        },
     ],
 )
-def test_billig_blended_needs_a_straight_surface(table: dict) -> None:
-    """Bodies without a virtual origin (no straight, inclined surface) are rejected."""
+def test_billig_blended_needs_a_virtual_origin(table: dict) -> None:
+    """Bodies without a sharp body behind the nose (plate, sphere-cylinder) are rejected."""
 
     # check
     geometry = parse_geometry(table, SHAPE_X_E)
     with pytest.raises(ValueError, match="virtual origin"):
         compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, method="billig_blended")
+
+
+def test_billig_blended_ogive_fades_into_the_sharp_ogive_shock() -> None:
+    """On an ogive the blend runs from Billig at the nose into the sharp ogive's shock.
+
+    The sharp ogive (the arc the blunt body follows, extended to its tip) is solved by
+    the method of characteristics; Billig's asymptote is its tip shock angle.
+    """
+
+    # compute the blended shock on an ogive whose x_e lies on the cylinder behind it
+    table = {
+        "type": "tangent-ogive",
+        "nose_radius": 1.0e-3,
+        "length": 0.5,
+        "base_radius": 0.05,
+    }
+    x_e = 0.6
+    geometry = parse_geometry(table, x_e)
+    blended = compute_shock_shape(
+        6.0,
+        1.4,
+        geometry,
+        x_e,
+        n_points=4000,
+        method="billig_blended",
+        blend_nose_radii=35.0,
+    )
+
+    # the sharp ogive from its tip, and its shock
+    ogive = geometry.build()
+    x_base, y_base = ogive.base_point
+    radius = ogive.ogive_radius
+    sharp_x = np.linspace(ogive.sharp_tip_x, x_base, 20001)
+    sharp_r = (
+        np.sqrt(np.maximum(radius**2 - (x_base - sharp_x) ** 2, 0.0)) + y_base - radius
+    )
+    sharp_r[0] = 0.0
+    sharp = solve_sharp_body(6.0, sharp_x, sharp_r, x_e)
+
+    # check: far downstream (x / R_n = 600, weight 0.055) the blend is near the sharp shock
+    y_end = np.interp(x_e, blended.x, blended.y)
+    y_sharp_end = np.interp(x_e, sharp.shock_x, sharp.shock_y)
+    assert y_end == pytest.approx(y_sharp_end, rel=0.03)
+
+    # check: the shock lies outside the body, and weakens toward the Mach angle on the cylinder
+    shock_y_at_body = np.interp(blended.body_x, blended.x, blended.y)
+    assert np.all(shock_y_at_body[1:] > blended.body_y[1:])
+    assert sharp.shock_angle[-1] < sharp.shock_angle[0]
 
 
 def test_blend_length_only_applies_to_billig_blended() -> None:

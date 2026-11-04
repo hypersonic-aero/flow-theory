@@ -52,7 +52,7 @@ def cmd_init_cf_ch(
 def cmd_cf_ch(
     config: Annotated[
         Path | None,
-        typer.Option("--config", "--cfg", "-c", help="Config TOML path."),
+        typer.Option("--config", "-c", help="Config TOML path."),
     ] = None,
     xs: Annotated[
         float | None,

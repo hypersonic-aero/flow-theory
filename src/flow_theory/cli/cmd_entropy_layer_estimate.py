@@ -47,7 +47,7 @@ def cmd_init_entropy_layer_estimate(
 def cmd_entropy_layer_estimate(
     config: Annotated[
         Path | None,
-        typer.Option("--config", "--cfg", "-c", help="Config TOML path."),
+        typer.Option("--config", "-c", help="Config TOML path."),
     ] = None,
     x: Annotated[
         float | None,

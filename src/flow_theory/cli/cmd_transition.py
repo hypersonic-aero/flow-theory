@@ -56,7 +56,7 @@ def cmd_init_transition(
 def cmd_transition(
     config: Annotated[
         Path | None,
-        typer.Option("--config", "--cfg", "-c", help="Config TOML path."),
+        typer.Option("--config", "-c", help="Config TOML path."),
     ] = None,
     mach: Annotated[
         float | None,

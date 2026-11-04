@@ -47,7 +47,7 @@ def cmd_init_entropy_layer_swallowing(
 def cmd_entropy_layer_swallowing(
     config: Annotated[
         Path | None,
-        typer.Option("--config", "--cfg", "-c", help="Config TOML path."),
+        typer.Option("--config", "-c", help="Config TOML path."),
     ] = None,
     mach: Annotated[
         float | None,

@@ -60,7 +60,6 @@ def cmd_shock_shape(
         Path | None,
         typer.Option(
             "--config",
-            "--cfg",
             "-c",
             help="Config TOML path. Defaults to shock_shape.toml when no direct inputs are provided.",
         ),

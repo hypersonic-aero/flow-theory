@@ -53,7 +53,7 @@ def cmd_init_shock_standoff(
 def cmd_shock_standoff(
     config: Annotated[
         Path | None,
-        typer.Option("--config", "--cfg", "-c", help="Config TOML path."),
+        typer.Option("--config", "-c", help="Config TOML path."),
     ] = None,
     flow_conditions: Annotated[
         Path | None,

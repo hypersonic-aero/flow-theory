@@ -28,7 +28,7 @@ keywords = ["aerodynamics", "hypersonics", "skin-friction", "boundary-layer", "c
 
 dependencies = [
     "canonical-geometries>=0.2.0",
-    "gasdyn>=0.1.0",
+    "gasdyn>=0.3.0",
     "numpy>=1.24.0",
     "scipy>=1.10.0",
     "typer>=0.9.0",

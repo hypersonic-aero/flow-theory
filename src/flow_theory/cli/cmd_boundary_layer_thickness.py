@@ -47,7 +47,7 @@ def cmd_init_boundary_layer_thickness(
 def cmd_boundary_layer_thickness(
     config: Annotated[
         Path | None,
-        typer.Option("--config", "--cfg", "-c", help="Config TOML path."),
+        typer.Option("--config", "-c", help="Config TOML path."),
     ] = None,
     x: Annotated[
         float | None,

@@ -19,12 +19,18 @@ hyperbola; for a curved body (tangent ogive) the shock angle follows the surface
 
 The hyperbola's asymptote is offset from the sharp-body shock by about
 R_c cot(beta), which holds near the nose but overpredicts the shock far
-downstream, where the nose's influence fades. Method "billig_blended" (wedges and
-cones) blends Billig's shock into the sharp-body shock from the virtual origin,
-the apex of the body's straight surface extended forward,
+downstream, where the nose's influence fades; on a curved body the local angle
+also lets the shock follow the surface too quickly. Method "billig_blended"
+(wedges, cones, tangent ogives) blends two shocks:
 
-    x_v = R_n (1 - 1 / sin(theta)),    y_vo(x) = (x - x_v) tan(beta),
-    y(x) = w y_billig(x) + (1 - w) y_vo(x),   w = 1 / (1 + (x / R_n) / L),
+- near the nose, Billig's hyperbola with the sharp body's tip shock angle as its
+  asymptote;
+- downstream, the shock of the sharp body the blunt body follows behind its nose,
+  starting at its virtual origin (the sharp tip): computed by the method of
+  characteristics (gasdyn.solve_sharp_body), a straight line for wedges and cones
+  (from x_v = R_n (1 - 1 / sin(theta))) and a curved shock for ogives,
+
+    y(x) = w y_billig(x) + (1 - w) y_sharp(x),   w = 1 / (1 + (x / R_n) / L),
 
 with the blend length L in nose radii. Both are inviscid: a laminar boundary
 layer pushes the real shock out further downstream (by about
@@ -41,7 +47,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from canonical_geometries.config import GeometryConfig
-from gasdyn import solve_oblique, solve_taylor_maccoll
+from gasdyn import solve_oblique, solve_sharp_body, solve_taylor_maccoll
 from numpy.typing import NDArray
 from scipy.integrate import solve_ivp
 
@@ -72,8 +78,11 @@ SHOCK_SHAPE_METHODS = ("billig", "billig_blended")
 # billig_blended: default blend length L [nose radii]
 _DEFAULT_BLEND_NOSE_RADII = 35.0
 
-# billig_blended needs a straight surface behind the nose (it has a virtual origin)
-_STRAIGHT_BODIES = ("wedge", "cone")
+# billig_blended needs a sharp body behind the nose (it has a virtual origin)
+_SHARP_BODY_TYPES = ("wedge", "cone", "tangent-ogive")
+
+# points of the sharp-body profile handed to the method of characteristics
+_SHARP_BODY_SIZE = 20001
 
 # sharp-body shock table: shock angles from just above the Mach angle [deg] to near
 # normal, spaced geometrically so small surface angles (an ogive's base) are resolved
@@ -351,40 +360,70 @@ def _spread_points(
     return x_out, y_out
 
 
-def _blend_with_virtual_origin(
+def _sharp_body_profile(
+    geometry: GeometryConfig, x_e: float
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """The sharp body a blunt body follows behind its nose, from its tip (virtual origin).
+
+    Args:
+        geometry: Wedge, cone (half_angle > 0) or tangent ogive.
+        x_e: Streamwise end [m]; the profile reaches it (an ogive ends at its base,
+            where the method of characteristics continues it as a cylinder).
+
+    Returns:
+        Profile x and radius (or half-thickness) [m], from the sharp tip.
+    """
+
+    # wedge and cone: the straight surface extended forward to the axis
+    if geometry.type in ("wedge", "cone"):
+        half_angle = math.radians(geometry.half_angle)
+        x_tip = geometry.nose_radius * (1.0 - 1.0 / math.sin(half_angle))
+        x = np.linspace(x_tip, x_e, _SHARP_BODY_SIZE)
+        r = (x - x_tip) * math.tan(half_angle)
+        return x, r
+
+    # tangent ogive: the ogive arc from the sharp tip to the base (or x_e before it)
+    ogive = geometry.build()
+    x_base, y_base = ogive.base_point
+    radius = ogive.ogive_radius
+    x = np.linspace(ogive.sharp_tip_x, min(x_base, x_e), _SHARP_BODY_SIZE)
+    r = np.sqrt(np.maximum(radius**2 - (x_base - x) ** 2, 0.0)) + y_base - radius
+    r[0] = 0.0
+
+    return x, r
+
+
+def _blend(
     x: NDArray[np.float64],
-    y: NDArray[np.float64],
+    y_billig: NDArray[np.float64],
+    sharp_x: NDArray[np.float64],
+    sharp_y: NDArray[np.float64],
     nose_radius: float,
-    surface_angle: float,
-    tan_shock: float,
     blend_nose_radii: float,
 ) -> NDArray[np.float64]:
-    """Blend Billig's shock into the sharp-body shock from the virtual origin.
+    """Blend Billig's shock into the sharp-body shock, at the same x.
 
     Args:
         x: Dense Billig shock x [m].
-        y: Dense Billig shock y [m].
+        y_billig: Dense Billig shock y [m].
+        sharp_x: Sharp-body shock x [m], from the virtual origin.
+        sharp_y: Sharp-body shock y [m].
         nose_radius: Nose radius [m].
-        surface_angle: Half-angle of the straight surface behind the nose [deg].
-        tan_shock: tan of the sharp-body shock angle of that surface.
         blend_nose_radii: Blend length L [nose radii].
 
     Returns:
         Blended shock y at the same x.
     """
 
-    # virtual origin: the straight surface extended forward to the axis
-    x_virtual = nose_radius * (1.0 - 1.0 / math.sin(math.radians(surface_angle)))
-
-    # sharp-body shock from the virtual origin
-    y_virtual = (x - x_virtual) * tan_shock
+    # sharp-body shock at Billig's stations (zero ahead of the virtual origin)
+    y_sharp = np.interp(x, sharp_x, sharp_y, left=0.0)
 
     # weight: Billig at the nose (x <= 0), fading algebraically with x / R_n
     xi = np.maximum(x, 0.0) / nose_radius
     weight = 1.0 / (1.0 + xi / blend_nose_radii)
 
     # blend at the same x
-    y_blended = weight * y + (1.0 - weight) * y_virtual
+    y_blended = weight * y_billig + (1.0 - weight) * y_sharp
 
     return y_blended
 
@@ -413,7 +452,7 @@ def compute_shock_shape(
         x_e: Streamwise end of the shock and body [m].
         n_points: Number of points on the shock and on the body.
         method: Shock-shape correlation name: "billig", or "billig_blended"
-            (wedges and cones; see the module docstring).
+            (wedges, cones and tangent ogives; see the module docstring).
         blend_nose_radii: billig_blended only: blend length L [nose radii]
             (default 35).
 
@@ -448,13 +487,15 @@ def compute_shock_shape(
     # build the body up to x_e
     body = build_body(geometry, x_e)
 
-    # check: billig_blended needs a straight surface behind the nose (a virtual origin)
+    # check: billig_blended needs a sharp body behind the nose (a virtual origin)
     if method_name == "billig_blended":
-        has_half_angle = getattr(geometry, "half_angle", 0.0) > 0.0
-        if body.geometry not in _STRAIGHT_BODIES or not has_half_angle:
+        has_virtual_origin = body.geometry in _SHARP_BODY_TYPES
+        if body.geometry in ("wedge", "cone"):
+            has_virtual_origin = geometry.half_angle > 0.0
+        if not has_virtual_origin:
             raise ValueError(
-                "method 'billig_blended' needs a wedge or cone with half_angle > 0 "
-                f"(a straight surface with a virtual origin): got {body.geometry}"
+                "method 'billig_blended' needs a wedge or cone with half_angle > 0, or a "
+                f"tangent ogive (a sharp body with a virtual origin): got {body.geometry}"
             )
 
     # compute the standoff distance used by the shock-shape correlation
@@ -495,6 +536,23 @@ def compute_shock_shape(
     station_shock = np.interp(surface_angle, table_body, table_shock)
     station_tan_shock = np.tan(np.radians(station_shock))
 
+    # billig_blended: Billig's asymptote is the sharp body's tip shock, the same at every
+    # station (the sharp-body shock takes over the body's shape downstream)
+    if method_name == "billig_blended":
+        sharp_x, sharp_r = _sharp_body_profile(geometry, x_e)
+        tip_angle = math.degrees(
+            math.atan2(sharp_r[1] - sharp_r[0], sharp_x[1] - sharp_x[0])
+        )
+        if tip_angle > table_body[-1]:
+            raise ValueError(
+                f"the sharp body's tip angle is {tip_angle:.2f} deg, past the largest angle "
+                f"with an attached shock at M = {mach} ({table_body[-1]:.2f} deg)"
+            )
+        tip_shock = float(np.interp(tip_angle, table_body, table_shock))
+        station_tan_shock = np.full_like(
+            station_tan_shock, math.tan(math.radians(tip_shock))
+        )
+
     # integrate the shock from the vertex to x_e, then spread its points
     x_dense, y_dense = _integrate_billig(
         standoff_delta=standoff.delta,
@@ -508,12 +566,24 @@ def compute_shock_shape(
     if method_name == "billig_blended":
         if blend_nose_radii is None:
             blend_nose_radii = _DEFAULT_BLEND_NOSE_RADII
-        y_dense = _blend_with_virtual_origin(
+
+        # sharp-body shock by the method of characteristics
+        sharp = solve_sharp_body(
+            mach,
+            sharp_x,
+            sharp_r,
+            x_end=x_e,
+            gamma=gamma,
+            axisymmetric=body.axisymmetric,
+        )
+
+        # blend
+        y_dense = _blend(
             x=x_dense,
-            y=y_dense,
+            y_billig=y_dense,
+            sharp_x=sharp.shock_x,
+            sharp_y=sharp.shock_y,
             nose_radius=body.nose_radius,
-            surface_angle=float(surface_angle[-1]),
-            tan_shock=float(station_tan_shock[-1]),
             blend_nose_radii=blend_nose_radii,
         )
 
