@@ -164,6 +164,35 @@ SHAPE_GEOMETRIES = {
 }
 
 
+def body_ending_at(table: dict, x_e: float):
+    """The body of a [geometry] table without its extent, made to end at x_e.
+
+    A geometry file gives the whole body; these tests give the shape and let it end
+    where the calculation ends: plate, wedge and cone get length = x_e, a tangent
+    ogive whose base lies before x_e gets a cylinder up to x_e.
+
+    Args:
+        table: [geometry] table without length (plate, wedge, cone) or cylinder_length.
+        x_e: Streamwise end of the body [m].
+
+    Returns:
+        Validated geometry model ending at x_e (an ogive ending past x_e stays as it is).
+    """
+
+    # straight bodies: the length is where they end
+    if table["type"] != "tangent-ogive":
+        geometry = parse_geometry(table | {"length": x_e})
+        return geometry
+
+    # tangent ogive: a cylinder from its base to x_e, when the base lies before x_e
+    geometry = parse_geometry(table)
+    x_base, _ = geometry.build().base_point
+    if x_e > x_base:
+        geometry = parse_geometry(table | {"cylinder_length": x_e - x_base})
+
+    return geometry
+
+
 def billig_hyperbola_x(y, result, shock_angle: float):
     """Billig's closed-form hyperbola x(y) with a constant asymptote angle [deg]."""
 
@@ -182,7 +211,7 @@ def test_shock_shape_runs_from_the_vertex_to_x_e(geometry_type: str) -> None:
     """The shock starts at the standoff vertex, ends at x_e, and lies outside the body."""
 
     # compute
-    geometry = parse_geometry(SHAPE_GEOMETRIES[geometry_type], SHAPE_X_E)
+    geometry = body_ending_at(SHAPE_GEOMETRIES[geometry_type], SHAPE_X_E)
     result = compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, n_points=200)
 
     # check the shock: vertex, end, monotonic in x
@@ -207,7 +236,7 @@ def test_shock_shape_matches_billig_worked_point() -> None:
     """The sampled locus should reproduce Billig's reported sphere point."""
 
     # compute the worked Mach 19.25 case (a sphere-cylinder) in the nose-tip frame
-    geometry = parse_geometry(
+    geometry = body_ending_at(
         {"type": "cone", "nose_radius": 1.0, "half_angle": 0.0}, 1.8
     )
     result = compute_shock_shape(19.25, 1.4, geometry, 1.8, n_points=2000)
@@ -233,7 +262,7 @@ def test_straight_bodies_give_billigs_hyperbola(
     """With a constant surface angle, the shock is Billig's hyperbola with the sharp-body angle."""
 
     # compute
-    geometry = parse_geometry(SHAPE_GEOMETRIES[geometry_type], SHAPE_X_E)
+    geometry = body_ending_at(SHAPE_GEOMETRIES[geometry_type], SHAPE_X_E)
     result = compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, n_points=400)
 
     # check against the closed form (to the shock-angle table's interpolation error)
@@ -246,9 +275,9 @@ def test_planar_and_axisymmetric_bodies_use_their_own_correlations() -> None:
 
     # compute both
     wedge_table = {"type": "wedge", "nose_radius": 0.01, "half_angle": 7.0}
-    wedge = compute_shock_shape(6.0, 1.4, parse_geometry(wedge_table, 0.1), 0.1)
+    wedge = compute_shock_shape(6.0, 1.4, body_ending_at(wedge_table, 0.1), 0.1)
     cone = compute_shock_shape(
-        6.0, 1.4, parse_geometry(SHAPE_GEOMETRIES["cone"], 0.1), 0.1
+        6.0, 1.4, body_ending_at(SHAPE_GEOMETRIES["cone"], 0.1), 0.1
     )
 
     # check: the cylinder nose stands the shock off further, and the wedge shock is steeper
@@ -260,7 +289,7 @@ def test_ogive_shock_follows_the_surface_angle() -> None:
     """The ogive shock bends from the nose-end hyperbola toward the Mach-angle hyperbola."""
 
     # compute an ogive ending on its cylinder
-    geometry = parse_geometry(SHAPE_GEOMETRIES["tangent-ogive"], SHAPE_X_E)
+    geometry = body_ending_at(SHAPE_GEOMETRIES["tangent-ogive"], SHAPE_X_E)
     result = compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, n_points=400)
 
     # the two bounding hyperbolas: the cone angle where the nose ends, and the Mach angle
@@ -287,7 +316,7 @@ def test_shock_shape_runs_at_very_high_mach(mach: float) -> None:
     """The weakest table shocks, on cones too thin to solve, don't stop the calculation."""
 
     # compute an ogive (surface angles down to 0) at very high Mach
-    geometry = parse_geometry(SHAPE_GEOMETRIES["tangent-ogive"], SHAPE_X_E)
+    geometry = body_ending_at(SHAPE_GEOMETRIES["tangent-ogive"], SHAPE_X_E)
     result = compute_shock_shape(mach, 1.4, geometry, SHAPE_X_E)
 
     # check
@@ -302,7 +331,7 @@ def test_small_noses_are_resolved(nose_radius: float) -> None:
     # compute a 1 m cone
     table = {"type": "cone", "nose_radius": nose_radius, "half_angle": 7.0}
     result = compute_shock_shape(
-        6.0, 1.4, parse_geometry(table, 1.0), 1.0, n_points=201
+        6.0, 1.4, body_ending_at(table, 1.0), 1.0, n_points=201
     )
 
     # turning angle between neighboring segments [deg]
@@ -320,7 +349,7 @@ def test_shock_shape_rejects_a_detached_sharp_body_shock() -> None:
     """A wedge steeper than the largest attached angle fails with a clear message."""
 
     # check
-    geometry = parse_geometry(
+    geometry = body_ending_at(
         {"type": "wedge", "nose_radius": 0.01, "half_angle": 50.0}, 0.1
     )
     with pytest.raises(ValueError, match="attached shock"):
@@ -331,7 +360,7 @@ def test_shock_shape_rejects_bad_selectors() -> None:
     """Unknown methods and too few points fail."""
 
     # check
-    geometry = parse_geometry(SHAPE_GEOMETRIES["cone"], 0.1)
+    geometry = body_ending_at(SHAPE_GEOMETRIES["cone"], 0.1)
     with pytest.raises(ValueError, match="method must be one of"):
         compute_shock_shape(6.0, 1.4, geometry, 0.1, method="hyperbola")
     with pytest.raises(ValueError, match="n_points"):
@@ -346,7 +375,7 @@ def test_billig_blended_fades_from_billig_to_the_virtual_origin_shock() -> None:
 
     # compute both methods on a long cone (x_e = 2000 nose radii)
     nose_radius, half_angle, x_e = 0.001, 7.0, 2.0
-    geometry = parse_geometry(
+    geometry = body_ending_at(
         {"type": "cone", "nose_radius": nose_radius, "half_angle": half_angle}, x_e
     )
     billig = compute_shock_shape(6.0, 1.4, geometry, x_e, n_points=4000)
@@ -392,7 +421,7 @@ def test_billig_blended_needs_a_virtual_origin(table: dict) -> None:
     """Bodies without a sharp body behind the nose (plate, sphere-cylinder) are rejected."""
 
     # check
-    geometry = parse_geometry(table, SHAPE_X_E)
+    geometry = body_ending_at(table, SHAPE_X_E)
     with pytest.raises(ValueError, match="virtual origin"):
         compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, method="billig_blended")
 
@@ -412,7 +441,7 @@ def test_billig_blended_ogive_fades_into_the_sharp_ogive_shock() -> None:
         "base_radius": 0.05,
     }
     x_e = 0.6
-    geometry = parse_geometry(table, x_e)
+    geometry = body_ending_at(table, x_e)
     blended = compute_shock_shape(
         6.0,
         1.4,
@@ -449,6 +478,6 @@ def test_blend_length_only_applies_to_billig_blended() -> None:
     """A blend length with method billig is an error, not silently ignored."""
 
     # check
-    geometry = parse_geometry(SHAPE_GEOMETRIES["cone"], SHAPE_X_E)
+    geometry = body_ending_at(SHAPE_GEOMETRIES["cone"], SHAPE_X_E)
     with pytest.raises(ValueError, match="only applies"):
         compute_shock_shape(6.0, 1.4, geometry, SHAPE_X_E, blend_nose_radii=30.0)

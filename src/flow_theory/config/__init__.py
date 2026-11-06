@@ -4,7 +4,7 @@ from .config_boundary_layer_thickness import BoundaryLayerThicknessConfig
 from .config_cf_ch import CfChConfig
 from .config_entropy_layer_estimate import EntropyLayerEstimateConfig
 from .config_entropy_layer_swallowing import EntropyLayerSwallowingConfig
-from .config_shock_shape import ShockShapeConfig
+from .config_shock_shape import GeometryFile, ShockShapeConfig
 from .config_shock_standoff import ShockStandoffConfig
 from .config_transition import TransitionConfig
 from .read_config import read_config
@@ -15,6 +15,7 @@ __all__ = [
     "CfChConfig",
     "EntropyLayerEstimateConfig",
     "EntropyLayerSwallowingConfig",
+    "GeometryFile",
     "SectionConfig",
     "ShockShapeConfig",
     "ShockStandoffConfig",

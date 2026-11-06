@@ -7,16 +7,18 @@ from .body import (
     BODY_GEOMETRIES,
     Body,
     arc_length_at_x,
+    body_end,
     build_body,
-    fill_geometry_extent,
     parse_geometry,
+    resolve_x_e,
 )
 
 __all__ = [
     "BODY_GEOMETRIES",
     "Body",
     "arc_length_at_x",
+    "body_end",
     "build_body",
-    "fill_geometry_extent",
     "parse_geometry",
+    "resolve_x_e",
 ]

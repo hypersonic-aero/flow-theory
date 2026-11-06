@@ -1,14 +1,12 @@
 # Shock Shape
 
 ```python
-from flow_theory.geometry import parse_geometry
+from canonical_geometries.config import load_geometry
 from flow_theory.shock import compute_shock_shape
 
-# the body ends at x_e, so its [geometry] table has no length
-geometry = parse_geometry(
-	{"type": "cone", "nose_radius": 0.01, "half_angle": 7.0},
-	x_e=0.10,
-)
+# the body from its geometry file (`geometry cone init` writes one; grid-generator
+# reads the same file); x_e lies on the body, at most at its end
+geometry = load_geometry("geometry.toml")
 
 result = compute_shock_shape(
 	mach=6.0,
@@ -24,5 +22,7 @@ result = compute_shock_shape(
 ::: flow_theory.shock.shape.compute_shock_shape
 
 ::: flow_theory.geometry.body.parse_geometry
+
+::: flow_theory.geometry.body.resolve_x_e
 
 ::: flow_theory.geometry.body.build_body

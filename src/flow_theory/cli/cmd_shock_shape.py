@@ -11,7 +11,6 @@ from typing import Annotated
 import typer
 
 from flow_theory.config import ShockShapeConfig
-from flow_theory.geometry import BODY_GEOMETRIES
 from flow_theory.runners import run_shock_shape
 
 from .examples_command import build_examples_command
@@ -71,38 +70,22 @@ def cmd_shock_shape(
             help="Required flow-state JSON file with freestream conditions.",
         ),
     ] = None,
-    nose_radius: Annotated[
-        float | None,
-        typer.Option("--nose-radius", help="Body nose radius."),
-    ] = None,
     geometry: Annotated[
-        str,
-        typer.Option("--geometry", help=f"Body geometry ({', '.join(BODY_GEOMETRIES)})."),
-    ] = "cone",
+        Path | None,
+        typer.Option(
+            "--geometry",
+            help=(
+                "Geometry file with the body (geometry.toml, written by geometry <type> "
+                "init). Default geometry.toml."
+            ),
+        ),
+    ] = None,
     method: Annotated[
         str,
         typer.Option(
             "--method", help="Shock-shape correlation: billig (default) or billig_blended."
         ),
     ] = "billig",
-    half_angle: Annotated[
-        float | None,
-        typer.Option(
-            "--half-angle",
-            help="Half-angle \\[deg], required for cone and wedge geometries.",
-        ),
-    ] = None,
-    length: Annotated[
-        float | None,
-        typer.Option(
-            "--length",
-            help="Sharp-ogive length, tip to base \\[m], tangent-ogive only.",
-        ),
-    ] = None,
-    base_radius: Annotated[
-        float | None,
-        typer.Option("--base-radius", help="Base radius \\[m], tangent-ogive only."),
-    ] = None,
     n_points: Annotated[
         int,
         typer.Option(
@@ -118,12 +101,12 @@ def cmd_shock_shape(
         ),
     ] = None,
     x_e: Annotated[
-        float,
+        float | None,
         typer.Option(
             "--x-e",
-            help="Streamwise endpoint for body and shock sampling.",
+            help="Streamwise end of the shock \\[m], at most the body's end (default: its end).",
         ),
-    ] = 0.1,
+    ] = None,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -135,8 +118,8 @@ def cmd_shock_shape(
     """Compute an approximate shock shape."""
 
     try:
-        # use direct options whenever either required direct input is present
-        use_direct_options = flow_conditions is not None or nose_radius is not None
+        # use direct options whenever a direct input is present
+        use_direct_options = flow_conditions is not None or geometry is not None
 
         # read and run from the focused config when direct inputs are absent
         if not use_direct_options:
@@ -151,21 +134,15 @@ def cmd_shock_shape(
         # validate required direct inputs when config path is not provided
         if flow_conditions is None:
             raise ValueError("flow_conditions is required unless --config is provided")
-        if nose_radius is None:
-            raise ValueError("nose_radius is required unless --config is provided")
 
-        # build the [geometry] table from the options that were given
-        geometry_table = {"type": geometry, "nose_radius": nose_radius}
-        shape_options = {"half_angle": half_angle, "length": length, "base_radius": base_radius}
-        for key, value in shape_options.items():
-            if value is not None:
-                geometry_table[key] = value
+        # the body: the geometry file given, or geometry.toml in this folder
+        geometry_path = Path("geometry.toml") if geometry is None else geometry
 
         # get the typed configuration dataclass
         config = ShockShapeConfig.from_dict(
             {
                 "flow_conditions": flow_conditions,
-                "geometry": geometry_table,
+                "geometry": {"file": geometry_path},
                 "x_e": x_e,
                 "method": method,
                 "n_points": n_points,

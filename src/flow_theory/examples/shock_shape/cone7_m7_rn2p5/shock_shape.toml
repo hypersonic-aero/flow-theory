@@ -1,6 +1,6 @@
 # 7 deg cone, 2.5 mm nose radius, Mach 7, Re = 2.4e6 /m
 #
-# body: 7 deg half-angle cone, 2.5 mm spherical nose, ending at x = 1 m (unit length)
+# body: geometry.toml (7 deg half-angle cone, 2.5 mm spherical nose, ending at x = 1 m)
 # freestream: flow_conditions.json (flow-state: mach = 7, temp = 300 K, re1 = 2.4e6 /m)
 # run: flow-theory shock-shape run
 
@@ -16,18 +16,12 @@ method = "billig_blended"
 blend_nose_radii = 35.0
 # points on the shock and on the body
 n_points = 201
-# streamwise end [m], measured from the nose tip
-x_e = 1.0
+# streamwise end [m], measured from the nose tip; left out: the body's end (x = 1 m)
+# x_e = 1.0
 # output file: Tecplot ASCII with a shock zone and a body zone (.csv: the shock as x, y)
 output = "shock_shape.dat"
 
-# --------------------------------------------------
-# body: canonical-geometries' [geometry] table (x_e sets its length)
-# --------------------------------------------------
+# body: canonical-geometries' geometry file (the one grid-generator reads too)
 [shock_shape.geometry]
-# geometry type (plate, wedge, cone, tangent-ogive)
-type = "cone"
-# nose radius [m]
-nose_radius = 2.5e-3
-# cone half-angle [deg]
-half_angle = 7.0
+# geometry file, relative to this file
+file = "geometry.toml"
