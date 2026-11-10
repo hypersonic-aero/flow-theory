@@ -8,6 +8,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from canonical_geometries.config import GEOMETRY_TEMPLATES
+from flow_state.gas import PerfectGas
+from flow_state.io import write_json
+from flow_state.solvers import solve
 from typer.testing import CliRunner
 
 from flow_theory.cli.app import app
@@ -239,3 +243,54 @@ def test_examples_reject_an_unknown_name() -> None:
     assert "unknown example" in result.output
     assert name in result.output
     assert list(Path(".").iterdir()) == []
+
+
+# --------------------------------------------------
+# paths in a config file are relative to the config file
+# --------------------------------------------------
+@pytest.mark.parametrize(
+    ("command", "config_name"),
+    [
+        ("bl", "boundary_layer_thickness.toml"),
+        ("cf-ch", "cf_ch.toml"),
+        ("entropy-layer-estimate", "entropy_layer_estimate.toml"),
+        ("entropy-layer-swallowing", "entropy_layer_swallowing.toml"),
+        ("shock-standoff", "shock_standoff.toml"),
+        ("shock-shape", "shock_shape.toml"),
+        ("transition", "transition.toml"),
+    ],
+)
+def test_a_config_run_from_another_folder_reads_and_writes_next_to_it(
+    tmp_path: Path, command: str, config_name: str
+) -> None:
+    """run -c case/<config> reads flow_conditions (and the body) and writes output in case/.
+
+    The test runs from tmp_path, the case folder's parent: every path in the config is
+    relative to the config file, not to the folder the command runs in.
+    """
+
+    # the case folder: the starter config, and the files it names next to it
+    case_folder = tmp_path / "case"
+    case_folder.mkdir()
+    config_path = case_folder / config_name
+    init_result = runner.invoke(app, [command, "init", "-o", str(config_path)])
+    config_text = config_path.read_text(encoding="utf-8")
+    section_name = config_name.removesuffix(".toml")
+    section = tomllib.loads(config_text)[section_name]
+    if "flow_conditions" in section:
+        state = solve(mach=6.0, pres=101325.0, temp=300.0, gas=PerfectGas.air())
+        write_json(state, case_folder / section["flow_conditions"])
+    if command == "shock-shape":
+        (case_folder / "geometry.toml").write_text(GEOMETRY_TEMPLATES["cone"])
+
+    # run from the case folder's parent
+    run_result = runner.invoke(app, [command, "run", "-c", "case/" + config_name])
+
+    # check: the output (or its variants, e.g. *_laminar) in the case folder, none here
+    output_stem = Path(section["output"]).stem
+    written_in_case = sorted(path.name for path in case_folder.glob(f"{output_stem}*"))
+    written_here = sorted(path.name for path in tmp_path.glob(f"{output_stem}*"))
+    assert init_result.exit_code == 0, init_result.output
+    assert run_result.exit_code == 0, run_result.output
+    assert written_in_case, f"no {output_stem}* in case/"
+    assert written_here == []

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal
 
 from canonical_geometries.config import GeometryConfig
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator
@@ -117,30 +117,3 @@ class ShockShapeConfig(SectionConfig):
             )
 
         return value
-
-    @classmethod
-    def from_file(cls, path: str | Path) -> Self:
-        """Read the section from a config file; a geometry file is relative to its folder.
-
-        Args:
-            path: Config file path.
-
-        Returns:
-            The validated section, its geometry file (if it names one) resolved.
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist.
-            ValueError: If the section is missing or invalid.
-        """
-
-        # read and validate the section
-        section = super().from_file(path)
-
-        # resolve a geometry file next to the config file (an absolute path stays); a
-        # body given by its keys needs nothing
-        resolved = section
-        if isinstance(section.geometry, GeometryFile):
-            geometry_file = GeometryFile(file=Path(path).parent / section.geometry.file)
-            resolved = section.model_copy(update={"geometry": geometry_file})
-
-        return resolved

@@ -4,6 +4,11 @@ Every calculator reads one [section] of a TOML file (or the same values from
 direct CLI options) into a frozen pydantic model. The model rejects unknown
 keys, checks types and ranges, and reports every problem at once as one
 ``key: message`` line each.
+
+Paths in a config file (flow_conditions, output, a geometry file) are relative to
+the config file's folder, so `flow-theory <calculator> run -c case/<file>.toml`
+reads and writes the case's files from any folder. Paths given as direct CLI
+options are relative to the folder the command runs in.
 """
 
 # --------------------------------------------------
@@ -155,11 +160,14 @@ class SectionConfig(BaseModel):
     def from_file(cls, path: str | Path) -> Self:
         """Read and validate the section from a TOML config file.
 
+        Every path in the section (also in a nested table, e.g. a geometry file) is
+        resolved against the config file's folder; an absolute path stays as it is.
+
         Args:
             path: Config file path.
 
         Returns:
-            The validated section.
+            The validated section, its paths resolved.
 
         Raises:
             FileNotFoundError: If the file doesn't exist.
@@ -173,7 +181,43 @@ class SectionConfig(BaseModel):
 
         section = cls.from_dict(cfg[cls.section_name])
 
-        return section
+        # paths in the file are relative to the file's folder
+        config_folder = Path(path).parent
+        resolved = _resolve_paths(section, config_folder)
+
+        return resolved
+
+
+# --------------------------------------------------
+# helper: paths relative to the config file
+# --------------------------------------------------
+def _resolve_paths(model: BaseModel, folder: Path) -> Any:
+    """The model with every Path field (also in nested models) joined to folder.
+
+    Joining keeps an absolute path as it is (folder / "/abs/x" is "/abs/x"), and
+    fields that aren't paths (numbers, names, None) are left alone.
+
+    Args:
+        model: A validated section, or a model nested in one.
+        folder: The config file's folder.
+
+    Returns:
+        A copy of the model with its paths resolved (the model is frozen).
+    """
+
+    # collect the fields to change: paths, and nested models with paths inside
+    updates: dict[str, Any] = {}
+    for name in type(model).model_fields:
+        value = getattr(model, name)
+        if isinstance(value, Path):
+            updates[name] = folder / value
+        elif isinstance(value, BaseModel):
+            updates[name] = _resolve_paths(value, folder)
+
+    # copy with the resolved values
+    resolved = model.model_copy(update=updates)
+
+    return resolved
 
 
 # --------------------------------------------------

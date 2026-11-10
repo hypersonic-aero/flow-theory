@@ -4,9 +4,9 @@ Provides simplified engineering correlations for laminar-to-turbulent
 transition on flat plates and slender cones.  These are lightweight,
 closed-form estimates intended for quick engineering screening -- rigorous
 linear stability theory (LST) analysis of specific disturbance modes belongs
-in `lst-tools`, and toolbox's `transition_onset_mod` (a CFD post-processing
-diagnostic that detects cf/ch spikes in an existing solution) is out of
-scope here entirely; every function in this module is a predictive
+in `lst-tools`, and detecting transition in an existing CFD solution (a
+post-processing diagnostic, e.g. from cf/ch spikes) is out of scope here
+entirely; every function in this module is a predictive
 correlation built from literature, not a diagnostic.
 
 Design

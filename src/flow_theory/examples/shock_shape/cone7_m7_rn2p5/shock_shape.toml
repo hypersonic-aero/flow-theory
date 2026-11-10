@@ -9,6 +9,7 @@
 # --------------------------------------------------
 [shock_shape]
 # flow conditions for the shock shape estimation (flow-state JSON with the freestream)
+# (relative to this file)
 flow_conditions = "flow_conditions.json"
 # method to estimate the shock shape (billig, billig_blended)
 method = "billig_blended"
@@ -19,6 +20,7 @@ n_points = 201
 # streamwise end [m], measured from the nose tip; left out: the body's end (x = 1 m)
 # x_e = 1.0
 # output file: Tecplot ASCII with a shock zone and a body zone (.csv: the shock as x, y)
+# (relative to this file)
 output = "shock_shape.dat"
 
 # body: canonical-geometries' geometry file (the one grid-generator reads too)

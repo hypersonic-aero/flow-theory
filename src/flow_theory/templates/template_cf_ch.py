@@ -14,6 +14,7 @@ def render_cf_ch_section() -> str:
         "[cf_ch]",
         "# toggle to enable/disable this section when running flow-theory",
         "# flow conditions file path (JSON) for this section",
+        "# (relative to this file)",
         'flow_conditions = "flow_conditions.json"',
         "# x input options:",
         "# - single location             : x = 1.0",
@@ -31,6 +32,7 @@ def render_cf_ch_section() -> str:
         "# wall temperature (K) for isothermal wall condition; ignored for adiabatic wall",
         "temp_wall = 300.0",
         "# output base filename; if both modes run, writes *_laminar and *_turbulent",
+        "# (relative to this file)",
         'output = "cf_vs_x.dat"',
     ]
     return "\n".join(lines)
