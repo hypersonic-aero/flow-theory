@@ -7,8 +7,8 @@ authors:
   - family-names: "Hader"
     given-names: "Christoph"
     orcid: "https://orcid.org/0000-0002-0956-000X"
-repository-code: "https://github.com/uahypersonics/flow-theory"
-url: "https://uahypersonics.github.io/flow-theory"
+repository-code: "https://github.com/hypersonic-aero/flow-theory"
+url: "https://hypersonic-aero.github.io/flow-theory"
 license: GPL-3.0-or-later
 keywords:
   - aerodynamics

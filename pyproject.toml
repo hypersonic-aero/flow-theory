@@ -48,9 +48,9 @@ dev = [
 flow-theory = "flow_theory.cli.app:app"
 
 [project.urls]
-Homepage = "https://github.com/uahypersonics/flow-theory"
-Repository = "https://github.com/uahypersonics/flow-theory"
-Documentation = "https://uahypersonics.github.io/flow-theory"
+Homepage = "https://github.com/hypersonic-aero/flow-theory"
+Repository = "https://github.com/hypersonic-aero/flow-theory"
+Documentation = "https://hypersonic-aero.github.io/flow-theory"
 
 [tool.setuptools.packages.find]
 where = ["src"]

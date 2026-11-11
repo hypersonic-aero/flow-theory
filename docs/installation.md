@@ -15,7 +15,7 @@ pip install --upgrade flow-theory
 ## From Source
 
 ```bash
-git clone https://github.com/uahypersonics/flow-theory.git
+git clone https://github.com/hypersonic-aero/flow-theory.git
 cd flow-theory
 pip install -e .
 ```

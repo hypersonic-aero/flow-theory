@@ -17,7 +17,7 @@ $$
 
 Convert to physical wall-normal gradient using the Falkner-Skan coordinate
 transformation (see
-[Falkner-Skan Derivation](https://uahypersonics.github.io/similarity-bl/theory/falkner_skan/derivation/)):
+[Falkner-Skan Derivation](https://hypersonic-aero.github.io/similarity-bl/theory/falkner_skan/derivation/)):
 
 $$
 \left.\frac{\partial \eta}{\partial y}\right|_w
@@ -155,4 +155,4 @@ $$
 ## References
 
 [^falkner_skan_1931]: Falkner, V.M. and Skan, S.W. (1931). Solutions of the boundary-layer equations. *Philosophical Magazine*, 12(80), 865-896.
-[^simbl_software]: Hader, C. (2026). *simbl: Similarity boundary layer solver* (Version 0.2.0) [Software]. DOI: [10.5281/zenodo.20648457](https://doi.org/10.5281/zenodo.20648457). Repository: [uahypersonics/similarity-bl](https://github.com/uahypersonics/similarity-bl).
+[^simbl_software]: Hader, C. (2026). *simbl: Similarity boundary layer solver* (Version 0.2.0) [Software]. DOI: [10.5281/zenodo.20648457](https://doi.org/10.5281/zenodo.20648457). Repository: [hypersonic-aero/similarity-bl](https://github.com/hypersonic-aero/similarity-bl).

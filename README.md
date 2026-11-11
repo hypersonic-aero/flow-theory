@@ -2,9 +2,9 @@
 
 Theoretical estimates for high-speed aerodynamics.
 
-[![Test](https://github.com/uahypersonics/flow-theory/actions/workflows/test.yml/badge.svg)](https://github.com/uahypersonics/flow-theory/actions/workflows/test.yml)
+[![Test](https://github.com/hypersonic-aero/flow-theory/actions/workflows/test.yml/badge.svg)](https://github.com/hypersonic-aero/flow-theory/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/flow-theory)](https://pypi.org/project/flow-theory/)
-[![Docs](https://img.shields.io/badge/docs-zensical-blue)](https://uahypersonics.github.io/flow-theory/)
+[![Docs](https://img.shields.io/badge/docs-zensical-blue)](https://hypersonic-aero.github.io/flow-theory/)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-≥3.11-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -23,7 +23,7 @@ import flow_theory
 
 ## Documentation
 
-Full documentation: https://uahypersonics.github.io/flow-theory
+Full documentation: https://hypersonic-aero.github.io/flow-theory
 
 ## Citation
 
@@ -33,7 +33,7 @@ If you use `flow_theory` in your research, please cite it:
 @software{flow_theory,
   author = {Hader, Christoph},
   title = {flow\_theory: Theoretical Estimates for High-Speed Aerodynamics},
-  url = {https://github.com/uahypersonics/flow-theory},
+  url = {https://github.com/hypersonic-aero/flow-theory},
   year = {2026}
 }
 ```

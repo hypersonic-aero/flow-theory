@@ -4,15 +4,15 @@
 # site metadata
 # --------------------------------------------------
 site_name: flow-theory
-site_url: https://uahypersonics.github.io/flow-theory
+site_url: https://hypersonic-aero.github.io/flow-theory
 site_author: Christoph Hader
 site_description: Theoretical estimates for high-speed aerodynamics
 
 # --------------------------------------------------
 # github repository
 # --------------------------------------------------
-repo_name: uahypersonics/flow-theory
-repo_url: https://github.com/uahypersonics/flow-theory
+repo_name: hypersonic-aero/flow-theory
+repo_url: https://github.com/hypersonic-aero/flow-theory
 edit_uri: edit/main/docs/
 
 # --------------------------------------------------

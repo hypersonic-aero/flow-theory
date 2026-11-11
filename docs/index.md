@@ -44,12 +44,12 @@ an issue or starting a discussion is the best first step.
 
 Using a label when opening an issue helps prioritize and track requests:
 
-- [Ask a question](https://github.com/uahypersonics/flow-theory/issues/new?labels=question)
-- [Report a bug](https://github.com/uahypersonics/flow-theory/issues/new?labels=bug)
-- [Suggest a feature](https://github.com/uahypersonics/flow-theory/issues/new?labels=enhancement)
+- [Ask a question](https://github.com/hypersonic-aero/flow-theory/issues/new?labels=question)
+- [Report a bug](https://github.com/hypersonic-aero/flow-theory/issues/new?labels=bug)
+- [Suggest a feature](https://github.com/hypersonic-aero/flow-theory/issues/new?labels=enhancement)
 
 ## License
 
 GNU General Public License v3.0 or later. See
-[LICENSE](https://github.com/uahypersonics/flow-theory/blob/main/LICENSE) for the
+[LICENSE](https://github.com/hypersonic-aero/flow-theory/blob/main/LICENSE) for the
 complete license terms.
